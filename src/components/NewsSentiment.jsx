@@ -132,16 +132,15 @@ function articleMentionsTicker(article, ticker, name) {
 }
 
 async function generateSummary(articles, context) {
-  const headlines = articles.slice(0, 25).map(a => `[${a.source}] ${a.title}`).join("\n");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 800,
-      messages: [{ role: "user", content: `You are a senior analyst at a top investment bank. Analyze these headlines and write a market intelligence briefing.\n\nContext: ${context}\n\nHeadlines:\n${headlines}\n\nWrite exactly:\n1. MARKET OVERVIEW — 2-3 sentences\n2. KEY THEMES — 3 bullet points\n3. RISKS TO WATCH — 2 bullet points\n4. PORTFOLIO IMPLICATIONS — 1-2 sentences\n\nBe specific and use professional IB language.` }],
-    }),
-  });
+  const res = await fetch("/api/claude", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 800,
+    messages: [{ role: "user", content: `You are a senior analyst...` }],
+  }),
+});
   if (!res.ok) throw new Error(`API ${res.status}`);
   const data = await res.json();
   return data.content?.[0]?.text ?? "No summary returned.";
