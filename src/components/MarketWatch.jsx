@@ -297,11 +297,11 @@ export default function MarketWatch({ holdings, onAddToPortfolio }) {
     setLastUpdate(new Date().toLocaleTimeString());
   }, [quotes]);
 
-  // Initial fetch + auto-refresh every 30s
+  // Initial fetch + auto-refresh every 1s
   useEffect(() => {
     fetchAll(watchlist);
     clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => fetchAll(watchlist), 30000);
+    intervalRef.current = setInterval(() => fetchAll(watchlist), 1000);
     return () => clearInterval(intervalRef.current);
   // eslint-disable-next-line
   }, [watchlist]);
@@ -335,7 +335,7 @@ export default function MarketWatch({ holdings, onAddToPortfolio }) {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {lastUpdate && (
             <span style={{ color: "#8b949e44", fontSize: 10 }}>
-              Auto-refresh 30s · Last: {lastUpdate}
+              Auto-refresh 1s · Last: {lastUpdate}
             </span>
           )}
           {loading && <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#8b949e", fontSize: 11 }}><Spinner /> Updating…</span>}

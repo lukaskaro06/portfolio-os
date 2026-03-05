@@ -1,18 +1,15 @@
 import { useState } from "react";
 import { STOCK_UNIVERSE } from "../data/stocks";
 import { getValuationScore, getValuationLabel } from "../utils/finance";
-import { SectionLabel, MetricRow, ValuationBadge } from "./UI";
+import { SectionLabel, MetricRow, ValuationBadge, Spinner } from "./UI";
 
-// ── PortfolioBuilder ───────────────────────────────────────
-// Left panel: holdings table + weight editor
-// Right panel: stock search + selected-stock detail card
 export default function PortfolioBuilder({
   holdings, totalWeight, metrics,
   addStock, removeStock, updateWeight, equalWeight,
-  onOptimize,
+  onOptimize, stockData,
 }) {
   const [selectedTicker, setSelectedTicker] = useState(null);
-  const [search, setSearch]                 = useState("");
+  const [search,         setSearch]         = useState("");
   const [showCustomForm, setShowCustomForm] = useState(false);
 
   const selected = holdings.find(h => h.ticker === selectedTicker) ||
@@ -27,7 +24,7 @@ export default function PortfolioBuilder({
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
 
-      {/* ── Left: holdings ──────────────────────────────── */}
+      {/* ── Left: holdings ─────────────────────────────── */}
       <div>
         <SectionLabel action={
           <div style={{ display: "flex", gap: 8 }}>
@@ -45,17 +42,22 @@ export default function PortfolioBuilder({
           onRemove={removeStock}
           onWeightChange={updateWeight}
           totalWeight={totalWeight}
+          stockData={stockData}
         />
 
-        {/* Selected-stock detail */}
         {selected && (
           <div className="fade-in stat-card" style={{ marginTop: 20, borderColor: "#00ff9d22" }}>
-            <StockDetail stock={selected} />
+            <StockDetail
+              stock={selected}
+              quote={stockData?.getQuote(selected.ticker)}
+              detail={stockData?.getDetail(selected.ticker)}
+              onLoadDetail={() => stockData?.loadDetail(selected.ticker)}
+            />
           </div>
         )}
       </div>
 
-      {/* ── Right: search + summary ──────────────────────── */}
+      {/* ── Right: search + summary ──────────────────── */}
       <div>
         <SectionLabel>Add Securities</SectionLabel>
 
@@ -67,74 +69,59 @@ export default function PortfolioBuilder({
           onChange={e => setSearch(e.target.value)}
         />
 
-        <div style={{
-          background: "#0d1117",
-          border: "1px solid #1c2333",
-          borderRadius: 6,
-          overflow: "hidden",
-          maxHeight: 360,
-          overflowY: "auto",
-        }}>
+        <div style={{ background: "#0d1117", border: "1px solid #1c2333", borderRadius: 6, overflow: "hidden", maxHeight: 360, overflowY: "auto" }}>
           {available.length === 0 && (
-            <p style={{ padding: 24, textAlign: "center", color: "#8b949e" }}>
-              All matching stocks already in portfolio
-            </p>
+            <p style={{ padding: 24, textAlign: "center", color: "#8b949e" }}>All matching stocks already in portfolio</p>
           )}
           {available.map(s => {
             const score = getValuationScore(s);
             const vl    = getValuationLabel(score);
+            const quote = stockData?.getQuote(s.ticker);
             return (
-              <div
-                key={s.ticker}
+              <div key={s.ticker}
                 onClick={() => { addStock(s); setSelectedTicker(s.ticker); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "10px 14px",
-                  borderBottom: "1px solid #0d1117",
-                  cursor: "pointer",
-                  transition: "background 0.1s",
-                }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: "1px solid #0d1117", cursor: "pointer", transition: "background 0.1s" }}
                 onMouseEnter={e => e.currentTarget.style.background = "#0d111799"}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
-                <span className="ticker-tag" style={{ minWidth: 46, textAlign: "center" }}>
-                  {s.ticker}
-                </span>
+                <span className="ticker-tag" style={{ minWidth: 46, textAlign: "center" }}>{s.ticker}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: "#c9d1d9", fontSize: 12 }}>{s.name}</div>
                   <div style={{ color: "#8b949e", fontSize: 11 }}>{s.sector} · P/E {s.pe}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <ValuationBadge label={vl.label} color={vl.color} />
-                  <div style={{ color: "#8b949e", fontSize: 11, marginTop: 3 }}>{score}</div>
+                  {quote ? (
+                    <>
+                      <div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>${quote.price}</div>
+                      <div style={{ color: quote.positive ? "#00ff9d" : "#ff6b35", fontSize: 10 }}>
+                        {quote.positive ? "+" : ""}{quote.changePct?.toFixed(2)}%
+                      </div>
+                    </>
+                  ) : (
+                    <ValuationBadge label={vl.label} color={vl.color} />
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Custom stock entry toggle */}
-        <button
-          className="btn btn-ghost"
-          style={{ width: "100%", marginTop: 10 }}
-          onClick={() => setShowCustomForm(v => !v)}
-        >
+        <button className="btn btn-ghost" style={{ width: "100%", marginTop: 10 }} onClick={() => setShowCustomForm(v => !v)}>
           {showCustomForm ? "▲ HIDE CUSTOM ENTRY" : "+ ADD CUSTOM STOCK"}
         </button>
         {showCustomForm && <CustomStockForm onAdd={s => { addStock(s); setShowCustomForm(false); }} />}
 
-        {/* Portfolio summary */}
         {metrics && (
           <div className="stat-card" style={{ marginTop: 16 }}>
             <SectionLabel>Portfolio Summary</SectionLabel>
-            <MetricRow label="Weighted Avg P/E"    value={metrics.avgPE} />
-            <MetricRow label="Weighted Avg P/B"    value={metrics.avgPB} />
-            <MetricRow label="Weighted EV/EBITDA"  value={metrics.avgEV} />
-            <MetricRow label="Expected Return"     value={`${metrics.ret}%`}    valueColor="#00ff9d" />
-            <MetricRow label="Portfolio Volatility" value={`${metrics.vol}%`}   valueColor="#ffd700" />
-            <MetricRow label="Sharpe Ratio"        value={metrics.sharpe}        valueColor={parseFloat(metrics.sharpe) >= 1 ? "#00ff9d" : "#ff6b35"} />
-            <MetricRow label="Portfolio Beta"      value={metrics.beta} />
-            <MetricRow label="Avg Dividend Yield"  value={`${metrics.divYield}%`} valueColor="#c084fc" />
+            <MetricRow label="Weighted Avg P/E"     value={metrics.avgPE} />
+            <MetricRow label="Weighted Avg P/B"     value={metrics.avgPB} />
+            <MetricRow label="Weighted EV/EBITDA"   value={metrics.avgEV} />
+            <MetricRow label="Expected Return"      value={`${metrics.ret}%`}     valueColor="#00ff9d" />
+            <MetricRow label="Portfolio Volatility" value={`${metrics.vol}%`}     valueColor="#ffd700" />
+            <MetricRow label="Sharpe Ratio"         value={metrics.sharpe}         valueColor={parseFloat(metrics.sharpe) >= 1 ? "#00ff9d" : "#ff6b35"} />
+            <MetricRow label="Portfolio Beta"       value={metrics.beta} />
+            <MetricRow label="Avg Dividend Yield"   value={`${metrics.divYield}%`} valueColor="#c084fc" />
           </div>
         )}
       </div>
@@ -143,19 +130,14 @@ export default function PortfolioBuilder({
 }
 
 // ── Holdings Table ─────────────────────────────────────────
-function HoldingsTable({ holdings, selectedTicker, onSelect, onRemove, onWeightChange, totalWeight }) {
-  const cols = "80px 1fr 90px 60px 60px 72px 80px 70px";
+function HoldingsTable({ holdings, selectedTicker, onSelect, onRemove, onWeightChange, totalWeight, stockData }) {
+  const cols = "80px 1fr 90px 70px 60px 60px 72px 80px 70px";
 
   return (
     <div style={{ background: "#0d1117", border: "1px solid #1c2333", borderRadius: 6, overflow: "hidden" }}>
-      {/* Column headers */}
-      <div style={{
-        display: "grid", gridTemplateColumns: cols,
-        padding: "8px 14px",
-        borderBottom: "1px solid #1c2333",
-        color: "#8b949e", fontSize: 11, letterSpacing: "0.05em",
-      }}>
+      <div style={{ display: "grid", gridTemplateColumns: cols, padding: "8px 14px", borderBottom: "1px solid #1c2333", color: "#8b949e", fontSize: 11, letterSpacing: "0.05em" }}>
         <span>TICKER</span><span>NAME</span><span>SECTOR</span>
+        <span style={{ textAlign: "right" }}>PRICE</span>
         <span style={{ textAlign: "right" }}>P/E</span>
         <span style={{ textAlign: "right" }}>P/B</span>
         <span style={{ textAlign: "right" }}>EV/EBIT</span>
@@ -164,66 +146,48 @@ function HoldingsTable({ holdings, selectedTicker, onSelect, onRemove, onWeightC
       </div>
 
       {holdings.length === 0 && (
-        <p style={{ padding: 40, textAlign: "center", color: "#8b949e" }}>
-          No holdings — add stocks from the panel →
-        </p>
+        <p style={{ padding: 40, textAlign: "center", color: "#8b949e" }}>No holdings — add stocks from the panel →</p>
       )}
 
       {holdings.map((h, i) => {
         const score = getValuationScore(h);
         const vl    = getValuationLabel(score);
+        const quote = stockData?.getQuote(h.ticker);
         return (
-          <div
-            key={h.ticker}
+          <div key={h.ticker}
             onClick={() => onSelect(h.ticker)}
-            style={{
-              display: "grid", gridTemplateColumns: cols,
-              padding: "10px 14px",
-              borderBottom: i < holdings.length - 1 ? "1px solid #0d1117" : "none",
-              alignItems: "center",
-              cursor: "pointer",
-              background: selectedTicker === h.ticker ? "#00ff9d08" : "transparent",
-              transition: "background 0.1s",
-            }}
+            style={{ display: "grid", gridTemplateColumns: cols, padding: "10px 14px", borderBottom: i < holdings.length - 1 ? "1px solid #0d1117" : "none", alignItems: "center", cursor: "pointer", background: selectedTicker === h.ticker ? "#00ff9d08" : "transparent", transition: "background 0.1s" }}
           >
             <span className="ticker-tag">{h.ticker}</span>
             <span style={{ color: "#c9d1d9", fontSize: 12, paddingRight: 8 }}>{h.name}</span>
             <span style={{ color: "#8b949e", fontSize: 11 }}>{h.sector}</span>
-            <span style={{ textAlign: "right", color: h.pe   > 30 ? "#ff6b35" : "#00ff9d" }}>{h.pe}</span>
-            <span style={{ textAlign: "right", color: h.pb   > 10 ? "#ff6b35" : "#00ff9d" }}>{h.pb}</span>
+            {/* Live price */}
+            <div style={{ textAlign: "right" }}>
+              {quote ? (
+                <div>
+                  <div style={{ color: "#fff", fontSize: 12, fontWeight: 600 }}>${quote.price}</div>
+                  <div style={{ color: quote.positive ? "#00ff9d" : "#ff6b35", fontSize: 10 }}>
+                    {quote.positive ? "+" : ""}{quote.changePct?.toFixed(2)}%
+                  </div>
+                </div>
+              ) : <Spinner />}
+            </div>
+            <span style={{ textAlign: "right", color: h.pe > 30 ? "#ff6b35" : "#00ff9d" }}>{h.pe}</span>
+            <span style={{ textAlign: "right", color: h.pb > 10 ? "#ff6b35" : "#00ff9d" }}>{h.pb}</span>
             <span style={{ textAlign: "right", color: h.evEbitda > 20 ? "#ffd700" : "#00ff9d" }}>{h.evEbitda}</span>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <input
-                className="weight-input"
-                type="number"
-                value={h.weight}
-                onChange={e => onWeightChange(h.ticker, e.target.value)}
-                onClick={e => e.stopPropagation()}
-              />
+              <input className="weight-input" type="number" value={h.weight} onChange={e => onWeightChange(h.ticker, e.target.value)} onClick={e => e.stopPropagation()} />
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                className="btn btn-danger"
-                style={{ padding: "3px 10px", fontSize: 11 }}
-                onClick={e => { e.stopPropagation(); onRemove(h.ticker); }}
-              >✕</button>
+              <button className="btn btn-danger" style={{ padding: "3px 10px", fontSize: 11 }} onClick={e => { e.stopPropagation(); onRemove(h.ticker); }}>✕</button>
             </div>
           </div>
         );
       })}
 
-      {/* Footer total */}
-      <div style={{
-        padding: "7px 14px",
-        borderTop: "1px solid #1c2333",
-        display: "flex", justifyContent: "flex-end",
-        color: "#8b949e", fontSize: 11,
-      }}>
+      <div style={{ padding: "7px 14px", borderTop: "1px solid #1c2333", display: "flex", justifyContent: "flex-end", color: "#8b949e", fontSize: 11 }}>
         TOTAL WEIGHT:{" "}
-        <span style={{
-          color: Math.abs(totalWeight - 100) < 0.1 ? "#00ff9d" : "#ff6b35",
-          fontWeight: 600, marginLeft: 6,
-        }}>
+        <span style={{ color: Math.abs(totalWeight - 100) < 0.1 ? "#00ff9d" : "#ff6b35", fontWeight: 600, marginLeft: 6 }}>
           {totalWeight.toFixed(1)}%
         </span>
       </div>
@@ -232,9 +196,14 @@ function HoldingsTable({ holdings, selectedTicker, onSelect, onRemove, onWeightC
 }
 
 // ── Stock Detail Card ──────────────────────────────────────
-function StockDetail({ stock }) {
+function StockDetail({ stock, quote, detail, onLoadDetail }) {
   const score = getValuationScore(stock);
   const vl    = getValuationLabel(score);
+  const [loadedDetail, setLoadedDetail] = useState(false);
+
+  const handleLoadDetail = () => {
+    if (!loadedDetail) { onLoadDetail(); setLoadedDetail(true); }
+  };
 
   return (
     <>
@@ -242,59 +211,73 @@ function StockDetail({ stock }) {
         <span style={{ fontSize: 15, color: "#00ff9d", fontWeight: 600 }}>{stock.ticker}</span>
         <span style={{ color: "#c9d1d9" }}>{stock.name}</span>
         <span style={{ color: "#8b949e", fontSize: 11 }}>· {stock.sector}</span>
-        <div style={{ marginLeft: "auto" }}>
-          <ValuationBadge label={vl.label} color={vl.color} />
-        </div>
+        {quote && (
+          <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div style={{ color: "#fff", fontSize: 18, fontWeight: 700 }}>${quote.price}</div>
+            <div style={{ color: quote.positive ? "#00ff9d" : "#ff6b35", fontSize: 12 }}>
+              {quote.positive ? "+" : ""}{quote.change} ({quote.positive ? "+" : ""}{quote.changePct?.toFixed(2)}%)
+            </div>
+          </div>
+        )}
+        {!quote && <div style={{ marginLeft: "auto" }}><ValuationBadge label={vl.label} color={vl.color} /></div>}
       </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
         {[
           { label: "P/E",        val: stock.pe,              good: v => v < 20 },
           { label: "P/B",        val: stock.pb,              good: v => v < 5  },
           { label: "EV/EBITDA",  val: stock.evEbitda,        good: v => v < 15 },
-          { label: "BETA",       val: stock.beta,            good: v => v < 1  },
+          { label: "BETA",       val: detail?.beta?.toFixed(2) ?? stock.beta,   good: v => parseFloat(v) < 1 },
           { label: "EXP. RET",   val: `${stock.expectedReturn}%`, good: () => true },
           { label: "DIV. YIELD", val: `${stock.dividend}%`,  good: v => parseFloat(v) > 0.5 },
         ].map(({ label, val, good }) => (
-          <div key={label} style={{
-            background: "#161b22", borderRadius: 4,
-            padding: "10px", textAlign: "center",
-          }}>
+          <div key={label} style={{ background: "#161b22", borderRadius: 4, padding: "10px", textAlign: "center" }}>
             <div style={{ color: "#8b949e", fontSize: 10, marginBottom: 5 }}>{label}</div>
-            <div style={{
-              fontSize: 16, fontWeight: 600,
-              color: good(typeof val === "string" ? parseFloat(val) : val) ? "#00ff9d" : "#ff6b35",
-            }}>{val}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: good(typeof val === "string" ? parseFloat(val) : val) ? "#00ff9d" : "#ff6b35" }}>{val}</div>
           </div>
         ))}
       </div>
+
+      {/* Load live detail button */}
+      {!detail && (
+        <button className="btn btn-ghost" style={{ width: "100%", marginTop: 12, fontSize: 11 }} onClick={handleLoadDetail}>
+          ↓ LOAD LIVE FUNDAMENTALS
+        </button>
+      )}
+
+      {/* Live fundamentals */}
+      {detail && (
+        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          {[
+            { label: "REVENUE",       val: (() => { const n = detail.revenue; if (!n) return "—"; if (n >= 1e9) return `$${(n/1e9).toFixed(1)}B`; return `$${(n/1e6).toFixed(0)}M`; })() },
+            { label: "REV GROWTH",    val: detail.revenueGrowth != null ? `${(detail.revenueGrowth * 100).toFixed(1)}%` : "—" },
+            { label: "PROFIT MARGIN", val: detail.profitMargin  != null ? `${(detail.profitMargin  * 100).toFixed(1)}%` : "—" },
+            { label: "TARGET PRICE",  val: detail.targetPrice   != null ? `$${detail.targetPrice.toFixed(2)}` : "—" },
+            { label: "DCF UPSIDE",    val: detail.dcfUpside     != null ? `${detail.dcfUpside > 0 ? "+" : ""}${detail.dcfUpside}%` : "—" },
+            { label: "CONSENSUS",     val: detail.recommendation?.toUpperCase() ?? "—" },
+            { label: "BUY %",         val: detail.buyPct != null ? `${detail.buyPct}%` : "—" },
+            { label: "52W RANGE",     val: detail.high52 && detail.low52 ? `$${detail.low52.toFixed(0)}–$${detail.high52.toFixed(0)}` : "—" },
+          ].map(({ label, val }) => (
+            <div key={label} style={{ background: "#0d1117", borderRadius: 4, padding: "7px 8px", textAlign: "center" }}>
+              <div style={{ color: "#8b949e44", fontSize: 9, marginBottom: 3 }}>{label}</div>
+              <div style={{ color: "#c9d1d9", fontSize: 12, fontWeight: 600 }}>{val}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }
 
 // ── Custom Stock Form ──────────────────────────────────────
 function CustomStockForm({ onAdd }) {
-  const empty = {
-    ticker: "", name: "", sector: "Technology",
-    pe: "", pb: "", evEbitda: "",
-    beta: "", expectedReturn: "", volatility: "", dividend: "",
-  };
+  const empty = { ticker: "", name: "", sector: "Technology", pe: "", pb: "", evEbitda: "", beta: "", expectedReturn: "", volatility: "", dividend: "" };
   const [form, setForm] = useState(empty);
-
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
   const handleSubmit = () => {
     if (!form.ticker || !form.name) return;
-    onAdd({
-      ...form,
-      ticker:         form.ticker.toUpperCase(),
-      pe:             parseFloat(form.pe)             || 20,
-      pb:             parseFloat(form.pb)             || 3,
-      evEbitda:       parseFloat(form.evEbitda)       || 12,
-      beta:           parseFloat(form.beta)           || 1,
-      expectedReturn: parseFloat(form.expectedReturn) || 10,
-      volatility:     parseFloat(form.volatility)     || 20,
-      dividend:       parseFloat(form.dividend)       || 0,
-    });
+    onAdd({ ...form, ticker: form.ticker.toUpperCase(), pe: parseFloat(form.pe) || 20, pb: parseFloat(form.pb) || 3, evEbitda: parseFloat(form.evEbitda) || 12, beta: parseFloat(form.beta) || 1, expectedReturn: parseFloat(form.expectedReturn) || 10, volatility: parseFloat(form.volatility) || 20, dividend: parseFloat(form.dividend) || 0 });
     setForm(empty);
   };
 
@@ -302,14 +285,7 @@ function CustomStockForm({ onAdd }) {
   const field = (label, key, placeholder, type = "text") => (
     <div>
       <div style={{ color: "#8b949e", fontSize: 10, marginBottom: 4 }}>{label}</div>
-      <input
-        className="input-dark"
-        style={{ width: "100%" }}
-        type={type}
-        placeholder={placeholder}
-        value={form[key]}
-        onChange={e => set(key, e.target.value)}
-      />
+      <input className="input-dark" style={{ width: "100%" }} type={type} placeholder={placeholder} value={form[key]} onChange={e => set(key, e.target.value)} />
     </div>
   );
 
@@ -317,8 +293,8 @@ function CustomStockForm({ onAdd }) {
     <div className="fade-in stat-card" style={{ marginTop: 10 }}>
       <div style={{ color: "#8b949e", fontSize: 11, marginBottom: 12, letterSpacing: "0.08em" }}>CUSTOM STOCK ENTRY</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {field("TICKER",     "ticker",         "AAPL")}
-        {field("COMPANY",    "name",           "Apple Inc.")}
+        {field("TICKER", "ticker", "AAPL")}
+        {field("COMPANY", "name", "Apple Inc.")}
       </div>
       <div style={{ marginTop: 10 }}>
         <div style={{ color: "#8b949e", fontSize: 10, marginBottom: 4 }}>SECTOR</div>
@@ -327,21 +303,15 @@ function CustomStockForm({ onAdd }) {
         </select>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
-        {field("P/E",            "pe",             "28.4", "number")}
-        {field("P/B",            "pb",             "5.2",  "number")}
-        {field("EV/EBITDA",      "evEbitda",       "16.0", "number")}
-        {field("BETA",           "beta",           "1.0",  "number")}
-        {field("EXP. RETURN %",  "expectedReturn", "11.0", "number")}
-        {field("VOLATILITY %",   "volatility",     "22.0", "number")}
-        {field("DIVIDEND %",     "dividend",       "1.5",  "number")}
+        {field("P/E", "pe", "28.4", "number")}
+        {field("P/B", "pb", "5.2", "number")}
+        {field("EV/EBITDA", "evEbitda", "16.0", "number")}
+        {field("BETA", "beta", "1.0", "number")}
+        {field("EXP. RETURN %", "expectedReturn", "11.0", "number")}
+        {field("VOLATILITY %", "volatility", "22.0", "number")}
+        {field("DIVIDEND %", "dividend", "1.5", "number")}
       </div>
-      <button
-        className="btn btn-primary"
-        style={{ width: "100%", marginTop: 14 }}
-        onClick={handleSubmit}
-      >
-        + ADD TO PORTFOLIO
-      </button>
+      <button className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} onClick={handleSubmit}>+ ADD TO PORTFOLIO</button>
     </div>
   );
 }
