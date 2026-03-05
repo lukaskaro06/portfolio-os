@@ -11,10 +11,13 @@ function yahooUrl(ticker, years) {
 
 const historyCache = {};
 
-// ── Fetch monthly closing prices for one ticker ────────────
-// Returns [{ date: "YYYY-MM", close: 123.45 }, ...]
 export async function fetchMonthlyPrices(ticker, years = 5) {
-  if (historyCache[ticker]) return historyCache[ticker];
+  const cacheKey = `${ticker}-${years}`;
+  if (historyCache[cacheKey]) return historyCache[cacheKey];
+  // ...
+  historyCache[cacheKey] = result;
+  return result;
+}
 
   const url = yahooUrl(ticker, years);
   console.log(`Fetching ${ticker} from Yahoo Finance...`);
