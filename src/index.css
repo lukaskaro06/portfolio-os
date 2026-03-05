@@ -1,0 +1,138 @@
+/* ── Base Reset ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #060a0f;
+  color: #c9d1d9;
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 13px;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #00ff9d44; border-radius: 3px; }
+
+/* ── Range Input ────────────────────────────────────────── */
+input[type=range] {
+  -webkit-appearance: none;
+  height: 4px;
+  background: #1c2333;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  background: #00ff9d;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+/* ── Reusable Component Classes ─────────────────────────── */
+.ticker-tag {
+  display: inline-block;
+  background: #00ff9d12;
+  color: #00ff9d;
+  border: 1px solid #00ff9d33;
+  padding: 1px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.stat-card {
+  background: #0d1117;
+  border: 1px solid #1c2333;
+  border-radius: 6px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+.stat-card:hover { border-color: #00ff9d22; }
+
+/* ── Buttons ────────────────────────────────────────────── */
+.btn {
+  cursor: pointer;
+  border: none;
+  padding: 7px 16px;
+  border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+}
+.btn-primary { background: #00ff9d; color: #060a0f; font-weight: 600; }
+.btn-primary:hover { background: #00e88d; transform: translateY(-1px); }
+.btn-ghost { background: transparent; color: #8b949e; border: 1px solid #1c2333; }
+.btn-ghost:hover { border-color: #00ff9d55; color: #c9d1d9; }
+.btn-danger { background: transparent; color: #ff6b35; border: 1px solid #ff6b3533; }
+.btn-danger:hover { background: #ff6b3515; }
+.btn-warning { background: transparent; color: #ffd700; border: 1px solid #ffd70033; }
+.btn-warning:hover { background: #ffd70015; }
+
+/* ── Inputs ─────────────────────────────────────────────── */
+.input-dark {
+  background: #0d1117;
+  border: 1px solid #1c2333;
+  color: #c9d1d9;
+  padding: 7px 11px;
+  border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-dark:focus { border-color: #00ff9d55; }
+.input-dark::placeholder { color: #8b949e; }
+
+.weight-input {
+  width: 64px;
+  background: #161b22;
+  border: 1px solid #1c2333;
+  color: #00ff9d;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  text-align: right;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.weight-input:focus { border-color: #00ff9d66; }
+
+/* ── Section Labels ─────────────────────────────────────── */
+.section-label {
+  color: #8b949e;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+/* ── Divider ────────────────────────────────────────────── */
+.divider { border: none; border-top: 1px solid #1c2333; margin: 16px 0; }
+
+/* ── Animations ─────────────────────────────────────────── */
+.fade-in { animation: fadeIn 0.35s ease; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.blink { animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+.pulse-green { animation: pulseGreen 0.7s ease; }
+@keyframes pulseGreen {
+  0%   { box-shadow: 0 0 0 0 #00ff9d66; }
+  100% { box-shadow: 0 0 0 14px transparent; }
+}
+
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Tooltip (Recharts override) ────────────────────────── */
+.recharts-tooltip-wrapper { outline: none; }
