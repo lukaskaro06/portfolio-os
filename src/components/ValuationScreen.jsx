@@ -1,187 +1,27 @@
 // src/components/ValuationScreen.jsx
-import { useState, useMemo, useEffect, useCallback } from "react";
-import {
-  ComposedChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, AreaChart, Area, Cell,
-} from "recharts";
+import { useState, useMemo, useEffect } from "react";
 import { STOCK_UNIVERSE } from "../data/stocks";
 import { getValuationScore, getValuationLabel } from "../utils/finance";
 import { SectionLabel, ValuationBadge, WeightBar, Spinner } from "./UI";
-import { fetchCandles, fetchStockNews, resolveIntervalRange } from "../hooks/useStockData";
+import CandleChart from "./CandleChart";
+import { fetchStockNews } from "../hooks/useStockData";
 
-// ── Formatters ─────────────────────────────────────────────
 const fmtMoney = n => {
   if (n == null) return "—";
-  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
-  if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e12) return `$${(n/1e12).toFixed(2)}T`;
+  if (n >= 1e9)  return `$${(n/1e9).toFixed(2)}B`;
+  if (n >= 1e6)  return `$${(n/1e6).toFixed(2)}M`;
   return `$${n.toLocaleString()}`;
 };
 const fmtVol = n => {
   if (n == null) return "—";
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
+  if (n >= 1e9) return `${(n/1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n/1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n/1e3).toFixed(0)}K`;
   return String(n);
 };
 
-// ── Range config (intraday + daily) ───────────────────────
-const RANGE_GROUPS = [
-  {
-    label: "INTRADAY", color: "#00c8ff",
-    ranges: [
-      { key: "1d",     label: "5m"   },
-      { key: "5d",     label: "5m·5d"},
-      { key: "1mo-1h", label: "1h"   },
-    ],
-  },
-  {
-    label: "DAILY", color: "#00ff9d",
-    ranges: [
-      { key: "1mo", label: "1M" },
-      { key: "3mo", label: "3M" },
-      { key: "6mo", label: "6M" },
-    ],
-  },
-  {
-    label: "WEEKLY", color: "#ffd700",
-    ranges: [
-      { key: "1y", label: "1Y" },
-      { key: "2y", label: "2Y" },
-      { key: "5y", label: "5Y" },
-    ],
-  },
-];
-
-// ── Candlestick chart (same as MarketWatch) ────────────────
-function CandleChart({ ticker, color = "#00ff9d" }) {
-  const [candles, setCandles] = useState([]);
-  const [range,   setRange]   = useState("1d");
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState(null);
-
-  const loadRange = useCallback(async r => {
-    setRange(r); setLoading(true); setError(null);
-    try   { setCandles(await fetchCandles(ticker, r)); }
-    catch (e) { setError(e.message); setCandles([]); }
-    finally   { setLoading(false); }
-  }, [ticker]);
-
-  useEffect(() => { loadRange("1d"); }, [loadRange]);
-
-  const data = candles.map(d => {
-    const lo = Math.min(d.open ?? d.close, d.close);
-    const hi = Math.max(d.open ?? d.close, d.close);
-    return {
-      ...d,
-      isUp:       d.close >= (d.open ?? d.close),
-      _base:      d.low,
-      _lowerWick: lo - (d.low ?? lo),
-      _body:      Math.max(hi - lo, 0.01),
-      _upperWick: (d.high ?? hi) - hi,
-    };
-  });
-
-  const wickShape = props => {
-    const { x, width, y, height, payload } = props;
-    if (!payload || height <= 0) return null;
-    return <line x1={x + width / 2} y1={y} x2={x + width / 2} y2={y + height}
-      stroke={payload.isUp ? "#00ff9d" : "#ff6b35"} strokeWidth={1.5} />;
-  };
-
-  const bodyShape = props => {
-    const { x, width, y, height, payload } = props;
-    if (!payload) return null;
-    const c = payload.isUp ? "#00ff9d" : "#ff6b35";
-    return <rect x={x + width * 0.12} y={y}
-      width={Math.max(width * 0.76, 2)} height={Math.max(height, 1)}
-      fill={c} opacity={0.88} stroke={c} strokeWidth={0.5} />;
-  };
-
-  const customTooltip = ({ active, payload }) => {
-    if (!active || !payload?.length) return null;
-    const d = payload[0]?.payload;
-    if (!d) return null;
-    return (
-      <div style={{ background: "#0d1117", border: "1px solid #1c2333", padding: "8px 12px", fontSize: 11, fontFamily: "monospace", borderRadius: 4, minWidth: 130 }}>
-        <div style={{ color: "#8b949e", marginBottom: 4, fontSize: 10, borderBottom: "1px solid #1c2333", paddingBottom: 3 }}>{d.date}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "auto auto", gap: "2px 12px" }}>
-          {d.open  != null && <><span style={{ color: "#8b949e" }}>O</span><span style={{ color: "#c9d1d9" }}>${d.open}</span></>}
-          {d.high  != null && <><span style={{ color: "#8b949e" }}>H</span><span style={{ color: "#00ff9d" }}>${d.high}</span></>}
-          {d.low   != null && <><span style={{ color: "#8b949e" }}>L</span><span style={{ color: "#ff6b35" }}>${d.low}</span></>}
-          {d.close != null && <><span style={{ color: "#8b949e" }}>C</span><span style={{ color: d.isUp ? "#00ff9d" : "#ff6b35", fontWeight: 700 }}>${d.close}</span></>}
-          {d.volume!= null && <><span style={{ color: "#8b949e" }}>V</span><span style={{ color: "#8b949e" }}>{fmtVol(d.volume)}</span></>}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div>
-      {/* Range buttons */}
-      <div style={{ marginBottom: 8 }}>
-        {RANGE_GROUPS.map(g => (
-          <div key={g.label} style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 4 }}>
-            <span style={{ color: g.color, fontSize: 9, letterSpacing: "0.1em", fontWeight: 700, minWidth: 50 }}>{g.label}</span>
-            {g.ranges.map(r => {
-              const active = range === r.key;
-              return (
-                <button key={r.key} onClick={() => loadRange(r.key)} style={{
-                  background: active ? g.color + "22" : "transparent",
-                  color:      active ? g.color : "#8b949e",
-                  border:     `1px solid ${active ? g.color + "55" : "#1c233366"}`,
-                  padding: "2px 8px", borderRadius: 3, fontSize: 10,
-                  cursor: "pointer", fontFamily: "monospace",
-                }}>{r.label}</button>
-              );
-            })}
-          </div>
-        ))}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-          <span style={{ color: "#8b949e44", fontSize: 10 }}>{data.length} candles</span>
-          {loading && <Spinner />}
-        </div>
-      </div>
-
-      {error && <p style={{ color: "#ff6b35", fontSize: 11 }}>⚠ {error}</p>}
-
-      {!loading && data.length > 0 && (
-        <>
-          <ResponsiveContainer width="100%" height={180}>
-            <ComposedChart data={data} margin={{ right: 6, bottom: 0, left: 0 }}>
-              <CartesianGrid stroke="#1c2333" strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fill: "#8b949e", fontSize: 9 }}
-                interval={Math.max(0, Math.floor(data.length / 7) - 1)} />
-              <YAxis domain={["auto", "auto"]} tick={{ fill: "#8b949e", fontSize: 9 }}
-                tickFormatter={v => `$${v}`} width={55} />
-              <Tooltip content={customTooltip} />
-              <Bar dataKey="_base"      stackId="c" fill="transparent" stroke="none" legendType="none" />
-              <Bar dataKey="_lowerWick" stackId="c" fill="transparent" stroke="none" legendType="none" shape={wickShape} />
-              <Bar dataKey="_body"      stackId="c" fill="transparent" stroke="none" legendType="none" shape={bodyShape} />
-              <Bar dataKey="_upperWick" stackId="c" fill="transparent" stroke="none" legendType="none" shape={wickShape} />
-            </ComposedChart>
-          </ResponsiveContainer>
-          <ResponsiveContainer width="100%" height={30}>
-            <ComposedChart data={data} margin={{ right: 6, left: 0 }}>
-              <YAxis hide />
-              <Bar dataKey="volume" fill={color} opacity={0.3}>
-                {data.map((d, i) => <Cell key={i} fill={d.isUp ? "#00ff9d" : "#ff6b35"} opacity={0.32} />)}
-              </Bar>
-            </ComposedChart>
-          </ResponsiveContainer>
-        </>
-      )}
-
-      {!loading && data.length === 0 && !error && (
-        <div style={{ height: 60, display: "flex", alignItems: "center", justifyContent: "center", color: "#8b949e44", fontSize: 11 }}>
-          No data for this range
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Expanded detail (chart + news) ─────────────────────────
+// ── Expanded detail (chart + news) ────────────────────────
 function ExpandedDetail({ stock, quote, onClose }) {
   const [news,  setNews]  = useState([]);
   const [nLoad, setNLoad] = useState(true);
@@ -196,38 +36,30 @@ function ExpandedDetail({ stock, quote, onClose }) {
   return (
     <div style={{ borderTop: "1px solid #1c2333", marginTop: 14, paddingTop: 14 }}>
 
-      {/* Live price row */}
+      {/* Live price strip */}
       {quote && (
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
           <span style={{ color: "#fff", fontSize: 22, fontWeight: 800 }}>${quote.price}</span>
-          <span style={{ color: c, fontSize: 13, fontWeight: 600, background: quote.positive ? "#00ff9d15" : "#ff6b3515", padding: "2px 10px", borderRadius: 3 }}>
+          <span style={{
+            color: c, fontSize: 13, fontWeight: 600,
+            background: quote.positive ? "#00ff9d15" : "#ff6b3515",
+            padding: "2px 10px", borderRadius: 3,
+          }}>
             {quote.positive ? "+" : ""}{quote.change} ({quote.positive ? "+" : ""}{quote.changePct?.toFixed(2)}%)
           </span>
-          {quote.dayHigh && (
-            <span style={{ color: "#8b949e", fontSize: 11 }}>
-              Day <b style={{ color: "#c9d1d9" }}>${quote.dayLow?.toFixed(2)}–${quote.dayHigh?.toFixed(2)}</b>
-            </span>
-          )}
-          {quote.high52 && (
-            <span style={{ color: "#8b949e", fontSize: 11 }}>
-              52W <b style={{ color: "#c9d1d9" }}>${quote.low52?.toFixed(2)}–${quote.high52?.toFixed(2)}</b>
-            </span>
-          )}
-          <span style={{ color: "#8b949e", fontSize: 11 }}>
-            Vol <b style={{ color: "#c9d1d9" }}>{fmtVol(quote.volume)}</b>
-          </span>
-          <span style={{ color: "#8b949e", fontSize: 11 }}>
-            Cap <b style={{ color: "#c9d1d9" }}>{fmtMoney(quote.marketCap)}</b>
-          </span>
+          {quote.dayHigh && <span style={{ color: "#8b949e", fontSize: 11 }}>Day <b style={{ color: "#c9d1d9" }}>${quote.dayLow?.toFixed(2)}–${quote.dayHigh?.toFixed(2)}</b></span>}
+          {quote.high52  && <span style={{ color: "#8b949e", fontSize: 11 }}>52W <b style={{ color: "#c9d1d9" }}>${quote.low52?.toFixed(2)}–${quote.high52?.toFixed(2)}</b></span>}
+          <span style={{ color: "#8b949e", fontSize: 11 }}>Vol <b style={{ color: "#c9d1d9" }}>{fmtVol(quote.volume)}</b></span>
+          <span style={{ color: "#8b949e", fontSize: 11 }}>Cap <b style={{ color: "#c9d1d9" }}>{fmtMoney(quote.marketCap)}</b></span>
         </div>
       )}
 
-      {/* Candlestick chart */}
+      {/* Proper candlestick chart with zoom/pan */}
       <div style={{ background: "#0d1117", border: "1px solid #1c2333", borderRadius: 6, padding: "12px 14px", marginBottom: 14 }}>
         <div style={{ color: "#8b949e", fontSize: 10, letterSpacing: "0.08em", marginBottom: 8 }}>
           PRICE CHART — {stock.ticker}
         </div>
-        <CandleChart ticker={stock.ticker} color={c} />
+        <CandleChart ticker={stock.ticker} height={200} volumeHeight={36} />
       </div>
 
       {/* News */}
@@ -255,20 +87,20 @@ function ExpandedDetail({ stock, quote, onClose }) {
   );
 }
 
-// ── Stock Card ─────────────────────────────────────────────
+// ── Stock card ─────────────────────────────────────────────
 function StockCard({ stock, inPortfolio, quote, expanded, onToggle }) {
   const score = getValuationScore(stock);
   const vl    = getValuationLabel(score);
   const c     = quote?.positive ? "#00ff9d" : "#ff6b35";
 
   return (
-    <div className="stat-card" style={{
-      borderColor:  expanded ? vl.color + "55" : inPortfolio ? "#00ff9d33" : "#1c2333",
-      position:     "relative",
-      cursor:       "pointer",
-      transition:   "border-color 0.15s",
-    }}
+    <div
+      className="stat-card"
       onClick={onToggle}
+      style={{
+        borderColor: expanded ? vl.color + "55" : inPortfolio ? "#00ff9d33" : "#1c2333",
+        position: "relative", cursor: "pointer", transition: "all 0.15s",
+      }}
       onMouseEnter={e => { if (!expanded) e.currentTarget.style.background = "#ffffff04"; }}
       onMouseLeave={e => { e.currentTarget.style.background = ""; }}
     >
@@ -279,7 +111,7 @@ function StockCard({ stock, inPortfolio, quote, expanded, onToggle }) {
         </span>
       )}
 
-      {/* Header */}
+      {/* Header row */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
         <span className="ticker-tag" style={{ fontSize: 13, padding: "3px 10px", flexShrink: 0 }}>{stock.ticker}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -295,11 +127,14 @@ function StockCard({ stock, inPortfolio, quote, expanded, onToggle }) {
             </div>
           </div>
         ) : (
-          <Spinner />
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Spinner />
+            <span style={{ color: "#8b949e44", fontSize: 10 }}>loading</span>
+          </div>
         )}
       </div>
 
-      {/* Valuation score bar */}
+      {/* Valuation score */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
           <span style={{ color: "#8b949e", fontSize: 11 }}>VALUATION SCORE</span>
@@ -320,7 +155,7 @@ function StockCard({ stock, inPortfolio, quote, expanded, onToggle }) {
         ].map(({ label, val, thresh }) => (
           <div key={label} style={{ background: "#161b22", borderRadius: 4, padding: "7px 8px", textAlign: "center" }}>
             <div style={{ color: "#8b949e", fontSize: 10, marginBottom: 4 }}>{label}</div>
-            <div style={{ color: val > thresh ? "#ff6b35" : "#00ff9d", fontWeight: 600 }}>{val ?? "—"}</div>
+            <div style={{ color: val > thresh ? "#ff6b35" : "#00ff9d", fontWeight: 600, fontSize: 13 }}>{val ?? "—"}</div>
           </div>
         ))}
       </div>
@@ -350,16 +185,15 @@ function StockCard({ stock, inPortfolio, quote, expanded, onToggle }) {
   );
 }
 
-// ── Main ValuationScreen ───────────────────────────────────
+// ── Main ───────────────────────────────────────────────────
 export default function ValuationScreen({ holdings, stockData }) {
-  const [view,     setView]     = useState("all");      // "all" | "portfolio"
+  const [view,     setView]     = useState("all");
   const [search,   setSearch]   = useState("");
-  const [sortBy,   setSortBy]   = useState("score");    // "score" | "price" | "change" | "pe"
+  const [sortBy,   setSortBy]   = useState("score");
   const [expanded, setExpanded] = useState(null);
 
   const inPortfolioSet = new Set(holdings.map(h => h.ticker));
 
-  // Merge static universe with live quotes
   const stocks = useMemo(() => {
     const base = view === "portfolio"
       ? STOCK_UNIVERSE.filter(s => inPortfolioSet.has(s.ticker))
@@ -371,11 +205,7 @@ export default function ValuationScreen({ holdings, stockData }) {
         const q = search.toLowerCase();
         return s.ticker.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
       })
-      .map(s => ({
-        ...s,
-        _quote: stockData?.getQuote(s.ticker) ?? null,
-        _score: getValuationScore(s),
-      }))
+      .map(s => ({ ...s, _quote: stockData?.getQuote(s.ticker) ?? null, _score: getValuationScore(s) }))
       .sort((a, b) => {
         if (sortBy === "score")  return b._score - a._score;
         if (sortBy === "pe")     return (a.pe ?? 999) - (b.pe ?? 999);
@@ -386,13 +216,12 @@ export default function ValuationScreen({ holdings, stockData }) {
   // eslint-disable-next-line
   }, [view, search, sortBy, holdings, stockData?.quotes]);
 
-  // Summary stats
   const undervalued = stocks.filter(s => s._score >= 60).length;
   const overvalued  = stocks.filter(s => s._score <  40).length;
 
   return (
     <div>
-      {/* Header */}
+      {/* Controls */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <SectionLabel>Valuation Screen</SectionLabel>
 
@@ -400,15 +229,11 @@ export default function ValuationScreen({ holdings, stockData }) {
         <div style={{ display: "flex", background: "#0d1117", border: "1px solid #1c2333", borderRadius: 6, overflow: "hidden" }}>
           {[["all", "ALL SECURITIES"], ["portfolio", "MY PORTFOLIO"]].map(([v, label]) => (
             <button key={v} onClick={() => setView(v)} style={{
-              background:  view === v ? "#00ff9d15" : "transparent",
-              color:       view === v ? "#00ff9d"   : "#8b949e",
-              border:      "none",
-              borderRight: "1px solid #1c2333",
-              padding:     "6px 14px",
-              cursor:      "pointer",
-              fontSize:    11,
-              fontFamily:  "inherit",
-              letterSpacing: "0.06em",
+              background:    view === v ? "#00ff9d15" : "transparent",
+              color:         view === v ? "#00ff9d"   : "#8b949e",
+              border:        "none", borderRight: "1px solid #1c2333",
+              padding:       "6px 14px", cursor: "pointer",
+              fontSize:      11, fontFamily: "inherit", letterSpacing: "0.06em",
             }}>{label}</button>
           ))}
         </div>
@@ -416,22 +241,16 @@ export default function ValuationScreen({ holdings, stockData }) {
         {/* Search */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#0d1117", border: "1px solid #1c2333", borderRadius: 6, padding: "6px 12px", flex: 1, maxWidth: 260 }}>
           <span style={{ color: "#8b949e" }}>⌕</span>
-          <input
-            className="input-dark"
+          <input className="input-dark"
             style={{ border: "none", background: "transparent", flex: 1, fontSize: 12, outline: "none", padding: 0 }}
             placeholder="Filter by ticker or name…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+            value={search} onChange={e => setSearch(e.target.value)} />
           {search && <span style={{ color: "#8b949e", cursor: "pointer" }} onClick={() => setSearch("")}>×</span>}
         </div>
 
         {/* Sort */}
-        <select
-          value={sortBy}
-          onChange={e => setSortBy(e.target.value)}
-          style={{ background: "#0d1117", border: "1px solid #1c2333", color: "#c9d1d9", padding: "6px 10px", borderRadius: 6, fontSize: 11, fontFamily: "inherit", cursor: "pointer" }}
-        >
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+          style={{ background: "#0d1117", border: "1px solid #1c2333", color: "#c9d1d9", padding: "6px 10px", borderRadius: 6, fontSize: 11, fontFamily: "inherit", cursor: "pointer" }}>
           <option value="score">Sort: Value Score</option>
           <option value="pe">Sort: P/E (low→high)</option>
           <option value="change">Sort: Today's Change</option>
@@ -445,29 +264,20 @@ export default function ValuationScreen({ holdings, stockData }) {
         <div><span style={{ color: "#8b949e", fontSize: 10 }}>UNDERVALUED </span><span style={{ color: "#00ff9d", fontWeight: 700 }}>{undervalued}</span></div>
         <div><span style={{ color: "#8b949e", fontSize: 10 }}>OVERVALUED </span><span style={{ color: "#ff6b35", fontWeight: 700 }}>{overvalued}</span></div>
         <div style={{ flex: 1, height: 4, borderRadius: 2, overflow: "hidden", display: "flex", minWidth: 100 }}>
-          <div style={{ width: `${stocks.length ? (undervalued / stocks.length) * 100 : 0}%`, background: "#00ff9d", transition: "width 0.4s" }} />
-          <div style={{ width: `${stocks.length ? (overvalued  / stocks.length) * 100 : 0}%`, background: "#ff6b35", transition: "width 0.4s" }} />
+          <div style={{ width: `${stocks.length ? (undervalued/stocks.length)*100 : 0}%`, background: "#00ff9d", transition: "width 0.4s" }} />
+          <div style={{ width: `${stocks.length ? (overvalued /stocks.length)*100 : 0}%`, background: "#ff6b35", transition: "width 0.4s" }} />
         </div>
-        <div style={{ display: "flex", gap: 14, fontSize: 11 }}>
-          {[
-            { label: "UNDERVALUED", color: "#00ff9d" },
-            { label: "FAIR VALUE",  color: "#ffd700" },
-            { label: "OVERVALUED",  color: "#ff6b35" },
-          ].map(({ label, color }) => (
-            <span key={label} style={{ display: "flex", alignItems: "center", gap: 5, color: "#8b949e" }}>
-              <span style={{ width: 8, height: 8, background: color, borderRadius: 2, display: "inline-block" }} />
-              {label}
-            </span>
-          ))}
-        </div>
+        {[["UNDERVALUED","#00ff9d"],["FAIR VALUE","#ffd700"],["OVERVALUED","#ff6b35"]].map(([label, color]) => (
+          <span key={label} style={{ display: "flex", alignItems: "center", gap: 5, color: "#8b949e", fontSize: 11 }}>
+            <span style={{ width: 8, height: 8, background: color, borderRadius: 2, display: "inline-block" }} />{label}
+          </span>
+        ))}
       </div>
 
-      {/* Card grid */}
+      {/* Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
         {stocks.map(stock => (
-          <StockCard
-            key={stock.ticker}
-            stock={stock}
+          <StockCard key={stock.ticker} stock={stock}
             quote={stock._quote}
             inPortfolio={inPortfolioSet.has(stock.ticker)}
             expanded={expanded === stock.ticker}
@@ -484,7 +294,7 @@ export default function ValuationScreen({ holdings, stockData }) {
       )}
 
       <p style={{ color: "#8b949e33", fontSize: 10, marginTop: 20 }}>
-        Valuation scores based on P/E · P/B · EV/EBITDA · Click any card for live chart & news · Prices via Yahoo Finance
+        Scores: P/E · P/B · EV/EBITDA · Click any card for chart & news · Scroll to zoom · Drag to pan
       </p>
     </div>
   );
