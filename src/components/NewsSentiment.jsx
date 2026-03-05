@@ -132,13 +132,17 @@ function articleMentionsTicker(article, ticker, name) {
 }
 
 async function generateSummary(articles, context) {
+  const headlines = articles.slice(0, 25).map(a => `[${a.source}] ${a.title}`).join("\n");
+  
   const res = await fetch("/api/claude", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-  model: "claude-sonnet-4-20250514",
-  max_tokens: 2000,
-  messages: [{ role: "user", content: `You are a Managing Director at Goldman Sachs writing the daily morning market intelligence briefing for top-tier institutional clients. Be extremely detailed, specific, and analytical.
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      messages: [{ 
+        role: "user", 
+        content: `You are a Managing Director at Goldman Sachs writing the daily morning market intelligence briefing for top-tier institutional clients. Be extremely detailed, specific, and analytical. Use professional investment banking language.
 
 Context: ${context}
 Today's Headlines (${articles.length} sources):
@@ -176,9 +180,15 @@ Write a comprehensive market briefing with EXACTLY these sections:
 — What could invalidate the above thesis?
 — Key events to watch in next 48-72 hours.
 
-Be specific and write at least 600 words. Every sentence must add value.` }],
-}),
-});
+Be specific and write at least 600 words. Every sentence must add value.`
+      }],
+    }),
+  });
+
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const data = await res.json();
+  return data.content?.[0]?.text ?? "No summary returned.";
+}
   if (!res.ok) throw new Error(`API ${res.status}`);
   const data = await res.json();
   return data.content?.[0]?.text ?? "No summary returned.";
