@@ -133,7 +133,6 @@ function articleMentionsTicker(article, ticker, name) {
 
 async function generateSummary(articles, context) {
   const headlines = articles.slice(0, 25).map(a => `[${a.source}] ${a.title}`).join("\n");
-  
   const res = await fetch("/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
