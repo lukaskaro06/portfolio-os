@@ -303,7 +303,7 @@ export default function MarketWatch({ holdings, onAddToPortfolio }) {
     clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => fetchAll(watchlist), 30000);
     return () => clearInterval(intervalRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line
   }, [watchlist]);
 
   const addTicker = useCallback((ticker) => {
