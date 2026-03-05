@@ -22,7 +22,7 @@ function scoreSentiment(text) {
   return               { label: "NEUTRAL",  color: "#ffd700" };
 }
 
-const CORS = "https://corsproxy.io/?";
+const CORS = "https://api.allorigins.win/raw?url=";
 const px   = (url) => `${CORS}${encodeURIComponent(url)}`;
 
 // ── Deduplication helper ───────────────────────────────────
