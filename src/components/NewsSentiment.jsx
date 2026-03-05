@@ -189,10 +189,6 @@ Be specific and write at least 600 words. Every sentence must add value.`
   const data = await res.json();
   return data.content?.[0]?.text ?? "No summary returned.";
 }
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const data = await res.json();
-  return data.content?.[0]?.text ?? "No summary returned.";
-}
 
 function SummaryPanel({ articles, category, ticker, holdings }) {
   const [summary, setSummary] = useState(null);
