@@ -13,8 +13,9 @@ import AnalyticsTab       from "./components/Analytics";
 import BacktestTab        from "./components/Backtest";
 import DCFTab             from "./components/DCF";
 import WorldMonitor       from "./components/WorldMonitor";
-import NewsSentiment      from "./components/NewsSentiment";  // NEW
+import NewsSentiment      from "./components/NewsSentiment";
 import LiveDataBanner     from "./components/LiveDataBanner";
+import MarketWatch from "./components/MarketWatch";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("builder");
@@ -61,6 +62,7 @@ export default function App() {
         {activeTab === "charts"     && <AnalyticsTab       holdings={enrichedHoldings} sectorBreakdown={sectorBreakdown} />}
         {activeTab === "world"      && <WorldMonitor       holdings={enrichedHoldings} />}
         {activeTab === "news"       && <NewsSentiment      holdings={enrichedHoldings} />}
+        {activeTab === "marketwatch" && <MarketWatch holdings={enrichedHoldings} onAddToPortfolio={(quote) => addStock(quote.ticker)} />}
       </main>
     </div>
   );

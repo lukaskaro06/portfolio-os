@@ -8,7 +8,8 @@ export default function Header({ metrics, totalWeight, activeTab, setActiveTab }
     { id: "montecarlo", label: "// MONTE CARLO"        },
     { id: "charts",     label: "// ANALYTICS"          },
     { id: "world",      label: "// WORLD MONITOR"      },
-    { id: "news",       label: "// NEWS & SENTIMENT"   },  // NEW
+    { id: "news",       label: "// NEWS & SENTIMENT"   },
+    { id: "marketwatch", label: "// MARKET WATCH" },
   ];
 
   const weightOk    = Math.abs(totalWeight - 100) < 0.1;
