@@ -15,10 +15,6 @@ export async function fetchMonthlyPrices(ticker, years = 5) {
   const cacheKey = `${ticker}-${years}`;
   if (historyCache[cacheKey]) return historyCache[cacheKey];
   // ...
-  historyCache[cacheKey] = result;
-  return result;
-}
-
   const url = yahooUrl(ticker, years);
   console.log(`Fetching ${ticker} from Yahoo Finance...`);
 
@@ -51,7 +47,7 @@ export async function fetchMonthlyPrices(ticker, years = 5) {
   if (result.length < 6) throw new Error(`Only ${result.length} months for ${ticker}`);
 
   console.log(`${ticker}: ${result.length} monthly points ✓`);
-  historyCache[ticker] = result;
+   historyCache[cacheKey] = result
   return result;
 }
 
