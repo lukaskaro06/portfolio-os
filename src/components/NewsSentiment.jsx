@@ -139,51 +139,9 @@ async function generateSummary(articles, context) {
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2000,
-      messages: [{ 
-        role: "user", 
-        content: `You are a Managing Director at Goldman Sachs writing the daily morning market intelligence briefing for top-tier institutional clients. Be extremely detailed, specific, and analytical. Use professional investment banking language.
-
-Context: ${context}
-Today's Headlines (${articles.length} sources):
-${headlines}
-
-Write a comprehensive market briefing with EXACTLY these sections:
-
-1. EXECUTIVE SUMMARY
-— 3-4 sentences capturing the single most important market narrative right now.
-
-2. MARKET OVERVIEW & KEY INDICES
-— Analyze overall market direction and momentum.
-— Discuss equity, fixed income, FX, and commodity moves implied by the headlines.
-— Identify whether we are in a risk-on or risk-off environment and why.
-
-3. SECTOR BREAKDOWN
-— Go through each relevant sector (Tech, Energy, Financials, Consumer, Healthcare, Industrials).
-— For each sector: what is happening, why it matters, directional bias (bullish/bearish/neutral).
-
-4. GEOPOLITICAL & MACRO RISKS
-— Identify all geopolitical flashpoints and macro risks.
-— Rate each risk: HIGH / MEDIUM / LOW impact.
-— Explain the transmission mechanism to markets.
-
-5. CENTRAL BANK & POLICY WATCH
-— Any Fed, ECB, BOJ signals in the news.
-— Implications for rates, yield curve, and USD.
-
-6. PORTFOLIO IMPLICATIONS
-— Specific actionable insights for a portfolio manager.
-— Which sectors to overweight / underweight.
-— Key hedging considerations.
-
-7. RISKS TO THE NARRATIVE
-— What could invalidate the above thesis?
-— Key events to watch in next 48-72 hours.
-
-Be specific and write at least 600 words. Every sentence must add value.`
-      }],
+      messages: [{ role: "user", content: "You are a Managing Director at Goldman Sachs writing a detailed morning market intelligence briefing.\n\nContext: " + context + "\n\nToday's Headlines (" + articles.length + " sources):\n" + headlines + "\n\nWrite a comprehensive briefing with these sections:\n\n1. EXECUTIVE SUMMARY\n- 3-4 sentences on the key market narrative.\n\n2. MARKET OVERVIEW & KEY INDICES\n- Overall market direction and momentum.\n- Equity, fixed income, FX, commodity moves.\n- Risk-on or risk-off environment and why.\n\n3. SECTOR BREAKDOWN\n- Tech, Energy, Financials, Consumer, Healthcare, Industrials.\n- For each: what is happening, why it matters, bullish/bearish/neutral.\n\n4. GEOPOLITICAL & MACRO RISKS\n- All geopolitical flashpoints visible in headlines.\n- Rate each: HIGH / MEDIUM / LOW impact.\n- Transmission mechanism to markets.\n\n5. CENTRAL BANK & POLICY WATCH\n- Fed, ECB, BOJ signals.\n- Implications for rates, yield curve, USD.\n\n6. PORTFOLIO IMPLICATIONS\n- Actionable insights for a portfolio manager.\n- Sectors to overweight / underweight.\n- Key hedging considerations.\n\n7. RISKS TO THE NARRATIVE\n- What could invalidate the thesis?\n- Key events to watch in next 48-72 hours.\n\nWrite at least 600 words. Be specific and professional." }],
     }),
   });
-
   if (!res.ok) throw new Error(`API ${res.status}`);
   const data = await res.json();
   return data.content?.[0]?.text ?? "No summary returned.";
