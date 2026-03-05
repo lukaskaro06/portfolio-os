@@ -1,17 +1,12 @@
 // ── backtestData.js ────────────────────────────────────────
 // Uses Yahoo Finance via a free CORS proxy — no API key needed.
 // Yahoo returns daily OHLCV which we resample to monthly.
-
-const PROXY = "https://corsproxy.io/?";
-
-// Yahoo Finance intervals: "1mo" gives monthly candles directly
 function yahooUrl(ticker, years) {
   const to   = Math.floor(Date.now() / 1000);
   const from = Math.floor((Date.now() - years * 365.25 * 24 * 3600 * 1000) / 1000);
-  const t    = ticker === "BRK" ? "BRK-B" : ticker; // handle Berkshire
-  return `${PROXY}${encodeURIComponent(
-    `https://query1.finance.yahoo.com/v8/finance/chart/${t}?interval=1mo&period1=${from}&period2=${to}`
-  )}`;
+  const t    = ticker === "BRK" ? "BRK-B" : ticker;
+  const yahooEndpoint = `https://query1.finance.yahoo.com/v8/finance/chart/${t}?interval=1mo&period1=${from}&period2=${to}`;
+  return `/api/proxy?url=${encodeURIComponent(yahooEndpoint)}`;
 }
 
 const historyCache = {};
