@@ -1,28 +1,35 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  // Parse body manually
   let body = req.body;
-  if (typeof body === 'string') {
-    body = JSON.parse(body);
-  }
+  if (typeof body === 'string') body = JSON.parse(body);
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  // Extract the prompt from the existing request
+  const prompt = body.messages?.[0]?.content ?? "";
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
+      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      model: "llama3-8b-8192",  // free & fast
+      max_tokens: 800,
+      messages: [{ role: "user", content: prompt }],
+    }),
   });
 
   const data = await response.json();
-  
-  // Log error details if it fails
+
   if (!response.ok) {
-    console.error("Anthropic error:", data);
+    console.error("Groq error:", data);
+    return res.status(response.status).json(data);
   }
 
-  res.status(response.status).json(data);
+  // Convert Groq response to Anthropic-style so your existing code works
+  const text = data.choices?.[0]?.message?.content ?? "No response.";
+  res.status(200).json({
+    content: [{ type: "text", text }]
+  });
 }
