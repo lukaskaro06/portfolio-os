@@ -1,6 +1,6 @@
-// ── useStockData.js ────────────────────────────────────────
-// Single source of truth for all live market data.
-// Call ONCE in App.jsx, pass quotes/details down to all tabs.
+// ── useStockData.js  (src/hooks/useStockData.js) ───────────
+// Uses ONLY v8/finance/chart — no quoteSummary → no 401 errors.
+// Exports: useStockData hook, fetchQuote, fetchCandles, fetchStockNews, searchTicker
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
@@ -8,108 +8,85 @@ export function proxyUrl(url) {
   return `/api/proxy?url=${encodeURIComponent(url)}`;
 }
 
-// ── Fetch quote + 7d sparkline ─────────────────────────────
+// ── Quote  +  7-day sparkline ──────────────────────────────
 export async function fetchQuote(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=7d`;
-  const res = await fetch(proxyUrl(url));
+  const raw  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=7d&includePrePost=false`;
+  const res  = await fetch(proxyUrl(raw));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
+  const json   = await res.json();
   const result = json?.chart?.result?.[0];
-  if (!result) throw new Error("No data");
+  if (!result) throw new Error(json?.chart?.error?.description ?? "No data");
 
-  const meta   = result.meta;
-  const closes = result.indicators?.adjclose?.[0]?.adjclose
-               ?? result.indicators?.quote?.[0]?.close ?? [];
-  const timestamps = result.timestamp ?? [];
+  const meta   = result.meta ?? {};
+  const q      = result.indicators?.quote?.[0] ?? {};
+  const adj    = result.indicators?.adjclose?.[0]?.adjclose ?? q.close ?? [];
+  const ts     = result.timestamp ?? [];
 
-  const price     = meta.regularMarketPrice ?? closes[closes.length - 1];
-  const prev      = meta.chartPreviousClose ?? meta.previousClose ?? closes[closes.length - 2];
+  const price     = meta.regularMarketPrice ?? adj[adj.length - 1] ?? 0;
+  const prev      = meta.chartPreviousClose ?? meta.previousClose  ?? adj[adj.length - 2] ?? price;
   const change    = price - prev;
   const changePct = prev ? (change / prev) * 100 : 0;
+
+  const sparkline = ts.map((t, i) => ({
+    date:   new Date(t * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    open:   q.open?.[i]   != null ? +q.open[i].toFixed(2)   : null,
+    high:   q.high?.[i]   != null ? +q.high[i].toFixed(2)   : null,
+    low:    q.low?.[i]    != null ? +q.low[i].toFixed(2)    : null,
+    close:  adj[i]        != null ? +adj[i].toFixed(2)      : null,
+    volume: q.volume?.[i] ?? null,
+    v:      adj[i]        != null ? +adj[i].toFixed(2)      : null, // legacy compat
+  })).filter(d => d.close !== null);
 
   return {
     ticker,
     name:      meta.longName ?? meta.shortName ?? ticker,
-    price:     parseFloat(price?.toFixed(2)),
-    change:    parseFloat(change?.toFixed(2)),
-    changePct: parseFloat(changePct?.toFixed(2)),
-    volume:    meta.regularMarketVolume,
-    marketCap: meta.marketCap,
+    price:     +price.toFixed(2),
+    change:    +change.toFixed(2),
+    changePct: +changePct.toFixed(2),
+    volume:    meta.regularMarketVolume ?? null,
+    marketCap: meta.marketCap ?? null,
     currency:  meta.currency ?? "USD",
-    sparkline: timestamps.map((ts, i) => ({
-      t: new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      v: closes[i] ?? null,
-    })).filter(d => d.v !== null),
+    high52:    meta.fiftyTwoWeekHigh ?? null,
+    low52:     meta.fiftyTwoWeekLow  ?? null,
+    sparkline,
     positive:  changePct >= 0,
     updated:   new Date().toLocaleTimeString(),
   };
 }
 
-// ── Fetch full fundamentals ────────────────────────────────
-export async function fetchDetail(ticker) {
-  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=price,summaryDetail,defaultKeyStatistics,financialData,recommendationTrend`;
-  const res = await fetch(proxyUrl(url));
+// ── OHLCV candles for any range  (used by MarketWatch) ─────
+export async function fetchCandles(ticker, range = "1mo") {
+  const ivMap = { "1wk": "1d", "1mo": "1d", "3mo": "1d", "6mo": "1wk", "1y": "1wk", "2y": "1wk", "5y": "1mo" };
+  const iv    = ivMap[range] ?? "1d";
+  const raw   = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${iv}&range=${range}&includePrePost=false`;
+  const res   = await fetch(proxyUrl(raw));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  const s = json?.quoteSummary?.result?.[0];
-  if (!s) throw new Error("No detail");
+  const json   = await res.json();
+  const result = json?.chart?.result?.[0];
+  if (!result) throw new Error("No candle data");
 
-  const price    = s.price ?? {};
-  const summary  = s.summaryDetail ?? {};
-  const keyStats = s.defaultKeyStatistics ?? {};
-  const finData  = s.financialData ?? {};
-  const rec      = s.recommendationTrend?.trend?.[0] ?? {};
+  const ts  = result.timestamp ?? [];
+  const q   = result.indicators?.quote?.[0] ?? {};
+  const adj = result.indicators?.adjclose?.[0]?.adjclose ?? q.close ?? [];
+  const longRange = range === "5y" || range === "2y";
 
-  const totalRecs = (rec.strongBuy ?? 0) + (rec.buy ?? 0) + (rec.hold ?? 0) + (rec.sell ?? 0) + (rec.strongSell ?? 0);
-  const eps        = keyStats.trailingEps?.raw ?? null;
-  const growth     = finData.revenueGrowth?.raw ?? 0.08;
-  const currentP   = price.regularMarketPrice?.raw;
-  const dcfEst     = eps ? parseFloat((eps * 15 * (1 + growth)).toFixed(2)) : null;
-  const dcfUpside  = dcfEst && currentP ? parseFloat((((dcfEst - currentP) / currentP) * 100).toFixed(1)) : null;
-
-  return {
-    ticker,
-    name:          price.longName ?? price.shortName ?? ticker,
-    price:         currentP,
-    changePct:     price.regularMarketChangePercent?.raw != null ? price.regularMarketChangePercent.raw * 100 : null,
-    high52:        summary.fiftyTwoWeekHigh?.raw,
-    low52:         summary.fiftyTwoWeekLow?.raw,
-    pe:            summary.trailingPE?.raw ?? keyStats.forwardPE?.raw,
-    forwardPE:     keyStats.forwardPE?.raw,
-    pb:            keyStats.priceToBook?.raw,
-    eps,
-    revenue:       finData.totalRevenue?.raw,
-    revenueGrowth: finData.revenueGrowth?.raw,
-    grossMargin:   finData.grossMargins?.raw,
-    profitMargin:  finData.profitMargins?.raw,
-    debtToEquity:  finData.debtToEquity?.raw,
-    roe:           finData.returnOnEquity?.raw,
-    targetPrice:   finData.targetMeanPrice?.raw,
-    recommendation:finData.recommendationKey,
-    strongBuy:     rec.strongBuy ?? 0,
-    buy:           rec.buy ?? 0,
-    hold:          rec.hold ?? 0,
-    sell:          rec.sell ?? 0,
-    strongSell:    rec.strongSell ?? 0,
-    buyPct:        totalRecs ? Math.round(((rec.strongBuy + rec.buy) / totalRecs) * 100) : null,
-    totalRecs,
-    dcfEst,
-    dcfUpside,
-    beta:          summary.beta?.raw ?? keyStats.beta?.raw,
-    dividendYield: summary.dividendYield?.raw,
-    marketCap:     price.marketCap?.raw,
-    sector:        price.sector ?? "",
-    industry:      price.industry ?? "",
-    evEbitda:      keyStats.enterpriseToEbitda?.raw,
-    expectedReturn: finData.returnOnEquity?.raw != null ? parseFloat((finData.returnOnEquity.raw * 100).toFixed(1)) : null,
-    volatility:    null, // not available from Yahoo summary
-  };
+  return ts.map((t, i) => ({
+    date:   new Date(t * 1000).toLocaleDateString("en-US", {
+              month: "short", day: "numeric",
+              ...(longRange ? { year: "2-digit" } : {}),
+            }),
+    open:   q.open?.[i]   != null ? +q.open[i].toFixed(2)   : null,
+    high:   q.high?.[i]   != null ? +q.high[i].toFixed(2)   : null,
+    low:    q.low?.[i]    != null ? +q.low[i].toFixed(2)    : null,
+    close:  adj[i]        != null ? +adj[i].toFixed(2)      : null,
+    volume: q.volume?.[i] ?? null,
+  })).filter(d => d.close !== null);
 }
 
-// ── Fetch stock news ───────────────────────────────────────
+// ── Stock-specific news ────────────────────────────────────
 export async function fetchStockNews(ticker) {
-  const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${ticker}&quotesCount=0&newsCount=8`;
-  const res = await fetch(proxyUrl(url));
+  const raw = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=0&newsCount=8`;
+  const res  = await fetch(proxyUrl(raw));
   if (!res.ok) throw new Error("News fetch failed");
   const json = await res.json();
   return (json?.news ?? []).map(n => ({
@@ -120,33 +97,33 @@ export async function fetchStockNews(ticker) {
   }));
 }
 
-// ── Search ─────────────────────────────────────────────────
+// ── Ticker search ──────────────────────────────────────────
 export async function searchTicker(query) {
-  const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=6&newsCount=0`;
-  const res = await fetch(proxyUrl(url));
+  const raw = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=6&newsCount=0`;
+  const res  = await fetch(proxyUrl(raw));
   if (!res.ok) throw new Error("Search failed");
   const json = await res.json();
-  return (json?.quotes ?? []).filter(q => q.quoteType === "EQUITY" || q.quoteType === "ETF").slice(0, 6);
+  return (json?.quotes ?? [])
+    .filter(q => q.quoteType === "EQUITY" || q.quoteType === "ETF")
+    .slice(0, 6);
 }
 
-// ── The global hook ────────────────────────────────────────
-const quoteCache  = {};
-const detailCache = {};
+// ── Global hook  (call once in App.jsx) ───────────────────
+const quoteCache = {};
 
 export function useStockData(tickers = []) {
   const [quotes,     setQuotes]     = useState({});
-  const [details,    setDetails]    = useState({});
   const [loading,    setLoading]    = useState(false);
   const [errors,     setErrors]     = useState({});
   const [lastUpdate, setLastUpdate] = useState(null);
   const intervalRef  = useRef();
   const tickerKey    = [...tickers].sort().join(",");
 
-  const refresh = useCallback(async (tickerList) => {
-    if (!tickerList?.length) return;
+  const refresh = useCallback(async (list) => {
+    if (!list?.length) return;
     setLoading(true);
     const newQ = {}, newE = {};
-    await Promise.allSettled(tickerList.map(async t => {
+    await Promise.allSettled(list.map(async t => {
       try   { const q = await fetchQuote(t); quoteCache[t] = q; newQ[t] = q; }
       catch (e) { newE[t] = e.message; }
     }));
@@ -160,26 +137,13 @@ export function useStockData(tickers = []) {
   useEffect(() => {
     if (tickers.length) refresh(tickers);
     clearInterval(intervalRef.current);
-    if (tickers.length) intervalRef.current = setInterval(() => refresh(tickers), 30000);
+    if (tickers.length)
+      intervalRef.current = setInterval(() => refresh(tickers), 30_000);
     return () => clearInterval(intervalRef.current);
   // eslint-disable-next-line
   }, [tickerKey]);
 
-  const loadDetail = useCallback(async (ticker) => {
-    if (detailCache[ticker]) { setDetails(p => ({ ...p, [ticker]: detailCache[ticker] })); return detailCache[ticker]; }
-    try {
-      const d = await fetchDetail(ticker);
-      detailCache[ticker] = d;
-      setDetails(p => ({ ...p, [ticker]: d }));
-      return d;
-    } catch (e) { console.warn("Detail failed:", ticker, e.message); return null; }
-  }, []);
+  const getQuote = useCallback(t => quotes[t] ?? quoteCache[t] ?? null, [quotes]);
 
-  return {
-    quotes, details, errors, loading, lastUpdate,
-    getQuote:  t => quotes[t]  ?? quoteCache[t]  ?? null,
-    getDetail: t => details[t] ?? detailCache[t] ?? null,
-    loadDetail,
-    refresh: () => refresh(tickers),
-  };
+  return { quotes, errors, loading, lastUpdate, getQuote, refresh: () => refresh(tickers) };
 }
