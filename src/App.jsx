@@ -5,6 +5,7 @@ import { usePortfolio }  from "./hooks/usePortfolio";
 import { useMarketData } from "./hooks/useMarketData";
 import { useStockData }  from "./hooks/useStockData";
 
+import Screener from "./components/Screener";
 import Header           from "./components/Header";
 import LiveDataBanner   from "./components/LiveDataBanner";
 import PortfolioBuilder from "./components/PortfolioBuilder";
@@ -146,6 +147,13 @@ export default function App() {
         {activeTab === "macro"       && <MacroPanel />}
         {activeTab === "fx"          && <FXCryptoPanel />}
         {activeTab === "commodities" && <CommoditiesPanel />}
+        {activeTab === "screener" && (
+          <Screener
+          stockData={stockData}
+          holdings={liveHoldings}
+          onAddToPortfolio={stock => addStock(stock)}
+           />
+           )}
       </main>
     </div>
   );

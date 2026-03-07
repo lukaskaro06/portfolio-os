@@ -13,6 +13,7 @@ export default function Header({ metrics, totalWeight, activeTab, setActiveTab }
     { id: "macro",       label: "// MACRO"         },
     { id: "fx",          label: "// FX & CRYPTO"   },
     { id: "commodities", label: "// COMMODITIES"   },
+    { id: "screener", label: "// SCREENER" },
     // ── Intelligence ─────────────────────────────────────
     { id: "news",        label: "// NEWS"          },
     { id: "world",       label: "// WORLD"         },
