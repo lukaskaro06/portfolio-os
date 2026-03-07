@@ -1,450 +1,345 @@
-import { RISK_FREE_RATE } from "../data/stocks";
+// src/utils/finance.js
+// Pure calculation functions — no imports, no side-effects
 
-// ── Valuation Score (0 – 100, higher = cheaper) ────────────
-// Combines P/E, P/B, EV/EBITDA into a single score.
-// Thresholds chosen to reflect typical S&P 500 ranges.
+// ── Formatters ─────────────────────────────────────────────
+export const fmt = {
+  dollar: n => {
+    if (n == null || isNaN(n)) return "—";
+    if (Math.abs(n) >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+    if (Math.abs(n) >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
+    if (Math.abs(n) >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`;
+    if (Math.abs(n) >= 1e3)  return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  },
+  pct: (n, d = 1) => n == null ? "—" : `${(+n).toFixed(d)}%`,
+  num: (n, d = 2) => n == null ? "—" : (+n).toFixed(d),
+};
+
+// ── Valuation scoring ──────────────────────────────────────
+// Returns 0–100 where 100 = most attractive
 export function getValuationScore(stock) {
-  const peScore    = Math.max(0, 100 - (stock.pe      / 60)  * 100);
-  const pbScore    = Math.max(0, 100 - (stock.pb      / 60)  * 100);
-  const evScore    = Math.max(0, 100 - (stock.evEbitda / 45) * 100);
-  return parseFloat(((peScore + pbScore + evScore) / 3).toFixed(1));
+  let score = 50;
+
+  // P/E (lower = better)
+  if (stock.pe != null) {
+    if      (stock.pe < 10)  score += 20;
+    else if (stock.pe < 15)  score += 12;
+    else if (stock.pe < 20)  score += 6;
+    else if (stock.pe < 25)  score += 0;
+    else if (stock.pe < 35)  score -= 8;
+    else                      score -= 18;
+  }
+
+  // P/B (lower = better)
+  if (stock.pb != null) {
+    if      (stock.pb < 1)   score += 14;
+    else if (stock.pb < 2)   score += 8;
+    else if (stock.pb < 4)   score += 3;
+    else if (stock.pb < 7)   score -= 4;
+    else                      score -= 12;
+  }
+
+  // EV/EBITDA (lower = better)
+  if (stock.evEbitda != null) {
+    if      (stock.evEbitda < 8)   score += 14;
+    else if (stock.evEbitda < 12)  score += 8;
+    else if (stock.evEbitda < 18)  score += 2;
+    else if (stock.evEbitda < 25)  score -= 6;
+    else                            score -= 14;
+  }
+
+  // Expected return bonus
+  if (stock.expectedReturn >= 15) score += 5;
+  if (stock.expectedReturn <= 7)  score -= 5;
+
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-// ── Valuation label + accent colour ───────────────────────
 export function getValuationLabel(score) {
   if (score >= 65) return { label: "UNDERVALUED", color: "#00ff9d" };
   if (score >= 40) return { label: "FAIR VALUE",  color: "#ffd700" };
-  return               { label: "OVERVALUED",  color: "#ff6b35" };
+  return                   { label: "OVERVALUED",  color: "#ff6b35" };
 }
 
-// ── Portfolio-level metrics from a holdings array ─────────
-// Each holding must have: weight (0-100), expectedReturn,
-// volatility, pe, pb, evEbitda, beta, dividend
+// ── Portfolio metrics ──────────────────────────────────────
 export function calcPortfolioMetrics(holdings) {
   if (!holdings.length) return null;
+  const total = holdings.reduce((s, h) => s + h.weight, 0);
+  if (total === 0) return null;
 
-  const w = holdings.map(h => h.weight / 100);
+  const w = holdings.map(h => h.weight / total);
 
-  const ret     = holdings.reduce((s, h, i) => s + w[i] * h.expectedReturn,  0);
-  const varP    = holdings.reduce((s, h, i) => s + Math.pow(w[i] * h.volatility, 2), 0);
-  const vol     = Math.sqrt(varP);
-  const sharpe  = (ret - RISK_FREE_RATE) / vol;
-  const avgPE   = holdings.reduce((s, h, i) => s + w[i] * h.pe,          0);
-  const avgPB   = holdings.reduce((s, h, i) => s + w[i] * h.pb,          0);
-  const avgEV   = holdings.reduce((s, h, i) => s + w[i] * h.evEbitda,    0);
-  const beta    = holdings.reduce((s, h, i) => s + w[i] * h.beta,        0);
-  const divYld  = holdings.reduce((s, h, i) => s + w[i] * h.dividend,    0);
+  const ret      = holdings.reduce((s, h, i) => s + w[i] * (h.expectedReturn ?? 10), 0);
+  const vol      = Math.sqrt(holdings.reduce((s, h, i) => s + Math.pow(w[i] * (h.volatility ?? 20), 2), 0));
+  const beta     = holdings.reduce((s, h, i) => s + w[i] * (h.beta ?? 1), 0);
+  const divYield = holdings.reduce((s, h, i) => s + w[i] * (h.dividend ?? 0), 0);
+  const sharpe   = vol > 0 ? (ret - 4.5) / vol : 0;
 
   return {
-    ret:      ret.toFixed(2),
-    vol:      vol.toFixed(2),
-    sharpe:   sharpe.toFixed(2),
-    avgPE:    avgPE.toFixed(1),
-    avgPB:    avgPB.toFixed(1),
-    avgEV:    avgEV.toFixed(1),
+    ret:      ret.toFixed(1),
+    vol:      vol.toFixed(1),
     beta:     beta.toFixed(2),
-    divYield: divYld.toFixed(2),
+    sharpe:   sharpe.toFixed(2),
+    divYield: divYield.toFixed(2),
   };
 }
 
-// ── Valuation-driven optimizer ────────────────────────────
-// Objective: score_i = adj_return_i / (vol_i * risk_penalty)
-// Undervalued stocks get a return uplift proportional to their
-// valuation score. Risk tolerance (0-100) scales the penalty.
-export function optimizeWeights(holdings, riskTolerance) {
-  const rt = riskTolerance / 100;
+// ── Weight optimizer ───────────────────────────────────────
+export function optimizeWeights(holdings, riskTolerance = 50) {
+  if (!holdings.length) return holdings;
+  const rf = 4.5;
+  const riskPenalty = 1 - (riskTolerance / 100) * 0.6; // 1.0 (conservative) → 0.4 (aggressive)
 
-  const scored = holdings.map(h => {
-    const valScore  = getValuationScore(h);
-    // Undervalued bonus: up to +10% on expected return
-    const adjReturn = h.expectedReturn * (1 + (valScore - 50) / 200);
-    const penalty   = h.volatility * (1 - rt * 0.5);
-    const score     = Math.max(0, (adjReturn - RISK_FREE_RATE * (1 - rt)) / penalty);
-    return { ...h, _score: score };
+  const scores = holdings.map(h => {
+    const valScore = getValuationScore(h) / 100;
+    const rawScore = (h.expectedReturn ?? 10) - riskPenalty * (h.volatility ?? 20) * 0.3 + valScore * 2;
+    return Math.max(0.1, rawScore);
   });
 
-  const total = scored.reduce((s, h) => s + h._score, 0);
-
-  return scored.map(h => ({
+  const total = scores.reduce((s, x) => s + x, 0);
+  return holdings.map((h, i) => ({
     ...h,
-    weight: total > 0
-      ? parseFloat(((h._score / total) * 100).toFixed(1))
-      : h.weight,
+    weight: parseFloat(((scores[i] / total) * 100).toFixed(1)),
   }));
+}
+
+// ── Efficient frontier ─────────────────────────────────────
+export function buildEfficientFrontier(universe) {
+  const points = [];
+  for (let rt = 0; rt <= 100; rt += 5) {
+    const optimized = optimizeWeights(universe.slice(0, 20), rt);
+    const metrics   = calcPortfolioMetrics(optimized);
+    if (metrics) {
+      points.push({ vol: parseFloat(metrics.vol), ret: parseFloat(metrics.ret), riskTolerance: rt });
+    }
+  }
+  return points.sort((a, b) => a.vol - b.vol);
+}
+
+// ── DCF model ──────────────────────────────────────────────
+export function runDCF({
+  revenueBase,      // current revenue $B
+  revenueGrowth,    // % annual growth
+  ebitMargin,       // % EBIT margin
+  taxRate,          // % tax rate
+  reinvestmentRate, // % of NOPAT reinvested
+  wacc,             // % discount rate
+  terminalGrowth,   // % terminal growth rate
+  forecastYears,    // number of forecast years (usually 5)
+  currentPrice,     // live stock price
+}) {
+  if (wacc <= terminalGrowth) throw new Error("WACC must exceed terminal growth rate");
+
+  const cashFlows = [];
+  let revenue = revenueBase;
+  let totalPV = 0;
+
+  for (let yr = 1; yr <= forecastYears; yr++) {
+    revenue       *= (1 + revenueGrowth / 100);
+    const ebit     = revenue * (ebitMargin / 100);
+    const nopat    = ebit * (1 - taxRate / 100);
+    const fcf      = nopat * (1 - reinvestmentRate / 100);
+    const pv       = fcf / Math.pow(1 + wacc / 100, yr);
+    totalPV       += pv;
+    cashFlows.push({ year: yr, revenue: +revenue.toFixed(2), ebit: +ebit.toFixed(2), nopat: +nopat.toFixed(2), fcf: +fcf.toFixed(2), pv: +pv.toFixed(2) });
+  }
+
+  const terminalFCF = cashFlows[cashFlows.length - 1].fcf * (1 + terminalGrowth / 100);
+  const terminalVal = terminalFCF / ((wacc - terminalGrowth) / 100);
+  const terminalPV  = terminalVal / Math.pow(1 + wacc / 100, forecastYears);
+  const intrinsicValue = totalPV + terminalPV;
+
+  let signal = "HOLD";
+  if (currentPrice && intrinsicValue > 0) {
+    const upside = (intrinsicValue - currentPrice) / currentPrice;
+    if (upside > 0.15)  signal = "BUY";
+    if (upside < -0.15) signal = "SELL";
+  }
+
+  return {
+    cashFlows,
+    terminalValue: +terminalVal.toFixed(2),
+    terminalPV:    +terminalPV.toFixed(2),
+    intrinsicValue:+intrinsicValue.toFixed(2),
+    pvFCF:         +totalPV.toFixed(2),
+    terminalPct:   +((terminalPV / intrinsicValue) * 100).toFixed(1),
+    signal,
+  };
+}
+
+// ── DCF sensitivity table ──────────────────────────────────
+export function buildSensitivityTable(baseInputs, waccRange, growthRange, steps = 5) {
+  const waccStep   = (waccRange[1]  - waccRange[0])  / (steps - 1);
+  const growthStep = (growthRange[1] - growthRange[0]) / (steps - 1);
+
+  const waccs   = Array.from({ length: steps }, (_, i) => +(waccRange[0]  + i * waccStep).toFixed(2));
+  const growths = Array.from({ length: steps }, (_, i) => +(growthRange[0] + i * growthStep).toFixed(2));
+
+  const table = growths.map(tg =>
+    waccs.map(w => {
+      try {
+        const r = runDCF({ ...baseInputs, wacc: w, terminalGrowth: tg });
+        return +r.intrinsicValue.toFixed(2);
+      } catch { return null; }
+    })
+  );
+
+  return { waccs, growths, table };
+}
+
+// ── Backtest ───────────────────────────────────────────────
+export function runBacktest({ priceHistory, weights, benchmark }) {
+  // priceHistory: { ticker: [{ date, close }] }
+  // weights: { ticker: weight (0-1) }
+  // benchmark: [{ date, close }]
+
+  // Find common dates across all series
+  const tickerDates = Object.values(priceHistory).map(series => new Set(series.map(d => d.date)));
+  const benchDates  = new Set(benchmark.map(d => d.date));
+  const commonDates = [...benchDates].filter(d => tickerDates.every(set => set.has(d))).sort();
+
+  if (commonDates.length < 2) throw new Error("Not enough common dates for backtest");
+
+  // Build indexed price lookup
+  const lookup = {};
+  for (const [ticker, series] of Object.entries(priceHistory)) {
+    lookup[ticker] = Object.fromEntries(series.map(d => [d.date, d.close]));
+  }
+  const benchLookup = Object.fromEntries(benchmark.map(d => [d.date, d.close]));
+
+  // Calculate monthly returns
+  const portfolioReturns = [];
+  const benchmarkReturns = [];
+
+  for (let i = 1; i < commonDates.length; i++) {
+    const prevDate = commonDates[i - 1];
+    const currDate = commonDates[i];
+
+    let portRet = 0;
+    for (const [ticker, weight] of Object.entries(weights)) {
+      const prev = lookup[ticker]?.[prevDate];
+      const curr = lookup[ticker]?.[currDate];
+      if (prev && curr && prev > 0) {
+        portRet += weight * ((curr - prev) / prev);
+      }
+    }
+
+    const benchPrev = benchLookup[prevDate];
+    const benchCurr = benchLookup[currDate];
+    const benchRet  = benchPrev && benchCurr && benchPrev > 0
+      ? (benchCurr - benchPrev) / benchPrev : 0;
+
+    portfolioReturns.push({ date: currDate, return: portRet });
+    benchmarkReturns.push({ date: currDate, return: benchRet });
+  }
+
+  // Build cumulative equity curves
+  let portValue  = 1;
+  let benchValue = 1;
+  const curve = commonDates.slice(1).map((date, i) => {
+    portValue  *= (1 + portfolioReturns[i].return);
+    benchValue *= (1 + benchmarkReturns[i].return);
+    return { date, portfolio: +(portValue * 100).toFixed(2), benchmark: +(benchValue * 100).toFixed(2) };
+  });
+
+  // Summary stats
+  const portTotal   = portValue - 1;
+  const benchTotal  = benchValue - 1;
+  const portCagr    = Math.pow(portValue, 12 / portfolioReturns.length) - 1;
+  const benchCagr   = Math.pow(benchValue, 12 / benchmarkReturns.length) - 1;
+
+  const portAvg = portfolioReturns.reduce((s, r) => s + r.return, 0) / portfolioReturns.length;
+  const portStd = Math.sqrt(portfolioReturns.reduce((s, r) => s + Math.pow(r.return - portAvg, 2), 0) / portfolioReturns.length);
+  const sharpe  = portStd > 0 ? (portAvg - 0.045 / 12) / portStd * Math.sqrt(12) : 0;
+
+  // Max drawdown
+  let peak = 1, maxDd = 0, runVal = 1;
+  for (const r of portfolioReturns) {
+    runVal *= (1 + r.return);
+    if (runVal > peak) peak = runVal;
+    const dd = (peak - runVal) / peak;
+    if (dd > maxDd) maxDd = dd;
+  }
+
+  // Monthly calendar
+  const monthlyCalendar = buildMonthlyCalendar(portfolioReturns);
+
+  return {
+    curve,
+    portTotal:   +(portTotal  * 100).toFixed(2),
+    benchTotal:  +(benchTotal * 100).toFixed(2),
+    portCagr:    +(portCagr   * 100).toFixed(2),
+    benchCagr:   +(benchCagr  * 100).toFixed(2),
+    sharpe:      +sharpe.toFixed(2),
+    maxDrawdown: +(maxDd * 100).toFixed(2),
+    monthlyCalendar,
+  };
+}
+
+function buildMonthlyCalendar(returns) {
+  const byYear = {};
+  for (const r of returns) {
+    const [yr, mo] = r.date.split("-");
+    if (!byYear[yr]) byYear[yr] = Array(13).fill(null);
+    const idx = parseInt(mo) - 1;
+    byYear[yr][idx] = r.return * 100;
+  }
+  // Annual totals
+  for (const yr of Object.keys(byYear)) {
+    const months = byYear[yr].slice(0, 12).filter(v => v !== null);
+    const total  = months.reduce((s, v) => s * (1 + v / 100), 1) - 1;
+    byYear[yr][12] = +(total * 100).toFixed(2);
+  }
+  return byYear;
 }
 
 // ── Monte Carlo simulation ────────────────────────────────
-// Returns `simCount` paths of `years*12` monthly returns.
-// Uses normal approximation: r_monthly ~ N(μ/12, σ/√12)
-export function runMonteCarlo({
-  annualReturn,    // e.g. 11.5  (percent)
-  annualVol,       // e.g. 18.3  (percent)
-  initialValue = 100_000,
-  years        = 10,
-  simCount     = 200,
-}) {
-  const mu    = annualReturn / 100 / 12;
-  const sigma = annualVol    / 100 / Math.sqrt(12);
-  const steps = years * 12;
-  const paths = [];
+export function runMonteCarlo({ annualReturn, annualVol, initialValue, years, simCount = 500 }) {
+  const monthlyRet = annualReturn / 100 / 12;
+  const monthlyVol = annualVol   / 100 / Math.sqrt(12);
+  const months     = years * 12;
 
-  // Box-Muller for standard normal samples
-  const randn = () => {
-    let u = 0, v = 0;
-    while (u === 0) u = Math.random();
-    while (v === 0) v = Math.random();
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-  };
-
+  const simulations = [];
   for (let s = 0; s < simCount; s++) {
-    const path = [initialValue];
-    for (let t = 1; t <= steps; t++) {
-      const prev = path[t - 1];
-      path.push(prev * Math.exp(mu - 0.5 * sigma * sigma + sigma * randn()));
+    let val = initialValue;
+    const path = [val];
+    for (let m = 0; m < months; m++) {
+      const z    = boxMullerRandom();
+      const ret  = monthlyRet + monthlyVol * z;
+      val       *= (1 + ret);
+      path.push(val);
     }
-    paths.push(path);
+    simulations.push(path);
   }
 
-  // Compute percentile bands at each time step
+  // Build percentile bands per month
   const bands = [];
-  for (let t = 0; t <= steps; t++) {
-    const vals = paths.map(p => p[t]).sort((a, b) => a - b);
-    const pct  = (p) => vals[Math.floor(p * simCount)];
+  for (let m = 0; m <= months; m++) {
+    const vals = simulations.map(s => s[m]).sort((a, b) => a - b);
     bands.push({
-      month:  t,
-      p10:    Math.round(pct(0.10)),
-      p25:    Math.round(pct(0.25)),
-      median: Math.round(pct(0.50)),
-      p75:    Math.round(pct(0.75)),
-      p90:    Math.round(pct(0.90)),
+      month: m,
+      p10:   vals[Math.floor(simCount * 0.10)],
+      p25:   vals[Math.floor(simCount * 0.25)],
+      p50:   vals[Math.floor(simCount * 0.50)],
+      p75:   vals[Math.floor(simCount * 0.75)],
+      p90:   vals[Math.floor(simCount * 0.90)],
     });
   }
 
-  return { paths, bands };
-}
-
-// ── Efficient Frontier (mean-variance, simplified) ────────
-// Sweeps target returns and finds min-variance weight vectors
-// using a greedy 2-asset approximation (N-asset needs QP solver).
-// For demo purposes we use the closed-form 2-fund separation
-// across a grid of risk-aversion parameters λ.
-export function buildEfficientFrontier(universe) {
-  const points = [];
-  for (let lambda = 0.01; lambda <= 5; lambda += 0.08) {
-    // Score each asset under this risk aversion
-    const scores = universe.map(s => {
-      const adjR = s.expectedReturn - lambda * s.volatility;
-      return Math.max(0, adjR);
-    });
-    const total = scores.reduce((a, b) => a + b, 0);
-    if (total === 0) continue;
-    const w = scores.map(sc => sc / total);
-
-    const ret = universe.reduce((s, a, i) => s + w[i] * a.expectedReturn, 0);
-    const vol = Math.sqrt(universe.reduce((s, a, i) => s + Math.pow(w[i] * a.volatility, 2), 0));
-    points.push({ vol: parseFloat(vol.toFixed(2)), ret: parseFloat(ret.toFixed(2)) });
-  }
-  // Deduplicate and sort by vol
-  return points
-    .filter((p, i, arr) => arr.findIndex(q => q.vol === p.vol) === i)
-    .sort((a, b) => a.vol - b.vol);
-}
-
-// ── Formatting helpers ─────────────────────────────────────
-export const fmt = {
-  pct:      v  => `${Number(v).toFixed(2)}%`,
-  dollar:   v  => `$${Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-  number:   v  => Number(v).toFixed(2),
-  sign:     v  => (v >= 0 ? "+" : "") + Number(v).toFixed(2),
-};
-// ── APPEND THESE FUNCTIONS TO THE BOTTOM OF src/utils/finance.js ──
-
-// ── Backtest engine ────────────────────────────────────────
-// Takes historical monthly price series per holding and
-// computes blended portfolio returns vs a benchmark.
-//
-// Input:
-//   priceHistory  – { AAPL: [{date, close}, ...], ... }
-//   weights       – { AAPL: 0.25, MSFT: 0.20, ... }  (must sum to 1)
-//   benchmark     – [{ date, close }, ...]  (e.g. SPY)
-//
-// Output: see return object below
-export function runBacktest({ priceHistory, weights, benchmark }) {
-  // ── Step 1: compute monthly returns per ticker ───────────
-  const tickerReturns = {};
-  for (const [ticker, prices] of Object.entries(priceHistory)) {
-    const sorted = [...prices].sort((a, b) => new Date(a.date) - new Date(b.date));
-    tickerReturns[ticker] = sorted.slice(1).map((p, i) => ({
-      date:   p.date,
-      return: (p.close - sorted[i].close) / sorted[i].close,
-    }));
-  }
-// ── Step 2: find common dates across all tickers ─────────
-  // Guard: skip tickers that came back empty
-  const validReturns = Object.values(tickerReturns).filter(r => r.length > 0);
-  if (validReturns.length === 0) throw new Error("No valid price history returned for any holding.");
-
-  const dateSets = validReturns.map(r => new Set(r.map(x => x.date)));
-  const commonDates = [...dateSets[0]].filter(d => dateSets.every(s => s.has(d))).sort();
-
-  if (commonDates.length === 0) throw new Error("No overlapping dates found across holdings.");
-
-  // ── Step 3: blend into portfolio returns ─────────────────
-  const portfolioReturns = commonDates.map(date => {
-    const blended = Object.entries(weights).reduce((sum, [ticker, w]) => {
-      const row = tickerReturns[ticker]?.find(r => r.date === date);
-      return sum + (row ? row.return * w : 0);
-    }, 0);
-    return { date, return: blended };
-  });
-
-  // ── Step 4: benchmark returns ────────────────────────────
-  const benchSorted  = [...benchmark].sort((a, b) => new Date(a.date) - new Date(b.date));
-  const benchReturns = benchSorted.slice(1).map((p, i) => ({
-    date:   p.date,
-    return: (p.close - benchSorted[i].close) / benchSorted[i].close,
-  }));
-  const benchMap = Object.fromEntries(benchReturns.map(r => [r.date, r.return]));
-
-  // ── Step 5: cumulative return series (for chart) ─────────
-  let portCum  = 1;
-  let benchCum = 1;
-  const cumSeries = portfolioReturns.map(({ date, return: r }) => {
-    portCum  *= (1 + r);
-    benchCum *= (1 + (benchMap[date] ?? 0));
-    return {
-      date,
-      portfolio:  parseFloat(((portCum  - 1) * 100).toFixed(2)),
-      benchmark:  parseFloat(((benchCum - 1) * 100).toFixed(2)),
-    };
-  });
-
-  // ── Step 6: risk metrics ──────────────────────────────────
-  const rets    = portfolioReturns.map(r => r.return);
-  const bRets   = portfolioReturns.map(r => benchMap[r.date] ?? 0);
-  const metrics = calcRiskMetrics(rets, bRets);
-
-  // ── Step 7: drawdown series ───────────────────────────────
-  let peak = 1;
-  let nav  = 1;
-  const drawdownSeries = portfolioReturns.map(({ date, return: r }) => {
-    nav  *= (1 + r);
-    peak  = Math.max(peak, nav);
-    return { date, drawdown: parseFloat((((nav - peak) / peak) * 100).toFixed(2)) };
-  });
-
-  // ── Step 8: monthly returns heatmap data ─────────────────
-  const monthlyHeatmap = buildMonthlyHeatmap(portfolioReturns);
-
-  return { cumSeries, drawdownSeries, monthlyHeatmap, metrics };
-}
-
-// ── Risk metrics calculator ────────────────────────────────
-// rets   – array of monthly portfolio returns (decimals)
-// bRets  – array of monthly benchmark returns (decimals)
-export function calcRiskMetrics(rets, bRets) {
-  const n          = rets.length;
-  const mean       = rets.reduce((s, r) => s + r, 0) / n;
-  const annReturn  = (Math.pow(1 + mean, 12) - 1) * 100;
-
-  // Volatility (annualised)
-  const variance   = rets.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / (n - 1);
-  const annVol     = Math.sqrt(variance * 12) * 100;
-
-  // Sharpe (Rf = 4.5% annual = 0.367% monthly)
-  const rfMonthly  = 0.045 / 12;
-  const sharpe     = ((mean - rfMonthly) / Math.sqrt(variance)) * Math.sqrt(12);
-
-  // Sortino (only downside deviation)
-  const downside   = rets.filter(r => r < rfMonthly);
-  const downVar    = downside.reduce((s, r) => s + Math.pow(r - rfMonthly, 2), 0) / (n - 1);
-  const sortino    = ((mean - rfMonthly) / Math.sqrt(downVar)) * Math.sqrt(12);
-
-  // Max drawdown
-  let peak = 1, nav = 1, maxDD = 0;
-  rets.forEach(r => {
-    nav  *= (1 + r);
-    peak  = Math.max(peak, nav);
-    maxDD = Math.min(maxDD, (nav - peak) / peak);
-  });
-
-  // Beta & Alpha vs benchmark
-  const bMean   = bRets.reduce((s, r) => s + r, 0) / bRets.length;
-  const cov     = rets.reduce((s, r, i) => s + (r - mean) * (bRets[i] - bMean), 0) / (n - 1);
-  const bVar    = bRets.reduce((s, r) => s + Math.pow(r - bMean, 2), 0) / (n - 1);
-  const beta    = bVar !== 0 ? cov / bVar : 1;
-  const alpha   = (mean - rfMonthly - beta * (bMean - rfMonthly)) * 12 * 100;
-
-  // Win rate
-  const wins    = rets.filter(r => r > 0).length;
-  const winRate = (wins / n) * 100;
-
-  // Best / worst month
-  const bestMonth  = Math.max(...rets) * 100;
-  const worstMonth = Math.min(...rets) * 100;
-
+  const finalVals = simulations.map(s => s[months]).sort((a, b) => a - b);
   return {
-    annReturn:  annReturn.toFixed(2),
-    annVol:     annVol.toFixed(2),
-    sharpe:     sharpe.toFixed(2),
-    sortino:    sortino.toFixed(2),
-    maxDD:      (maxDD * 100).toFixed(2),
-    beta:       beta.toFixed(2),
-    alpha:      alpha.toFixed(2),
-    winRate:    winRate.toFixed(1),
-    bestMonth:  bestMonth.toFixed(2),
-    worstMonth: worstMonth.toFixed(2),
-    numMonths:  n,
+    bands,
+    median:    finalVals[Math.floor(simCount * 0.5)],
+    p10:       finalVals[Math.floor(simCount * 0.1)],
+    p90:       finalVals[Math.floor(simCount * 0.9)],
+    probProfit: finalVals.filter(v => v > initialValue).length / simCount,
   };
 }
 
-// ── Monthly returns heatmap builder ───────────────────────
-// Returns rows of { year, Jan, Feb, ..., Dec, Annual }
-function buildMonthlyHeatmap(returns) {
-  const byYearMonth = {};
-  returns.forEach(({ date, return: r }) => {
-    const [year, month] = date.split("-");
-    if (!byYearMonth[year]) byYearMonth[year] = {};
-    byYearMonth[year][parseInt(month)] = r;
-  });
-
-  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-  return Object.entries(byYearMonth)
-    .sort(([a], [b]) => a - b)
-    .map(([year, months]) => {
-      const row = { year };
-      let annual = 1;
-      MONTHS.forEach((m, i) => {
-        const r = months[i + 1];
-        row[m]  = r !== undefined ? parseFloat((r * 100).toFixed(2)) : null;
-        if (r !== undefined) annual *= (1 + r);
-      });
-      row.Annual = parseFloat(((annual - 1) * 100).toFixed(2));
-      return row;
-    });
-}
-// ── APPEND THESE FUNCTIONS TO THE BOTTOM OF src/utils/finance.js ──
-
-// ── DCF Model ──────────────────────────────────────────────
-// Standard 2-stage DCF:
-//   Stage 1: explicit forecast period (years 1-N)
-//   Stage 2: terminal value via Gordon Growth Model
-//
-// Inputs:
-//   revenueBase      – current year revenue per share ($)
-//   revenueGrowth    – annual revenue growth rate (%, e.g. 8.5)
-//   ebitMargin       – EBIT margin (%, e.g. 22.0)
-//   taxRate          – effective tax rate (%, e.g. 21.0)
-//   reinvestmentRate – % of NOPAT reinvested (%, e.g. 30.0)
-//   wacc             – weighted avg cost of capital (%, e.g. 9.0)
-//   terminalGrowth   – perpetual growth rate (%, e.g. 3.0)
-//   forecastYears    – explicit forecast period (default 5)
-//   sharesOut        – shares outstanding (millions, for total equity value)
-//   currentPrice     – current stock price (for margin of safety)
-//
-// Returns: { intrinsicValue, upside, signal, stages, terminalValue, pvTerminal }
-export function runDCF({
-  revenueBase,
-  revenueGrowth,
-  ebitMargin,
-  taxRate          = 21,
-  reinvestmentRate = 30,
-  wacc,
-  terminalGrowth,
-  forecastYears    = 5,
-  currentPrice     = null,
-}) {
-  const g   = revenueGrowth    / 100;
-  const m   = ebitMargin       / 100;
-  const t   = taxRate          / 100;
-  const rr  = reinvestmentRate / 100;
-  const r   = wacc             / 100;
-  const tg  = terminalGrowth   / 100;
-
-  if (r <= tg) throw new Error("WACC must be greater than terminal growth rate.");
-
-  // ── Stage 1: forecast FCF per year ───────────────────────
-  let revenue = revenueBase;
-  let pvSum   = 0;
-  const stages = [];
-
-  for (let yr = 1; yr <= forecastYears; yr++) {
-    revenue       *= (1 + g);
-    const ebit     = revenue * m;
-    const nopat    = ebit * (1 - t);
-    const fcf      = nopat * (1 - rr);
-    const pv       = fcf / Math.pow(1 + r, yr);
-    pvSum         += pv;
-
-    stages.push({
-      year:    yr,
-      revenue: parseFloat(revenue.toFixed(2)),
-      ebit:    parseFloat(ebit.toFixed(2)),
-      nopat:   parseFloat(nopat.toFixed(2)),
-      fcf:     parseFloat(fcf.toFixed(2)),
-      pv:      parseFloat(pv.toFixed(2)),
-    });
-  }
-
-  // ── Stage 2: terminal value ───────────────────────────────
-  const lastFCF      = stages[stages.length - 1].fcf;
-  const terminalFCF  = lastFCF * (1 + tg);
-  const terminalValue = terminalFCF / (r - tg);
-  const pvTerminal    = terminalValue / Math.pow(1 + r, forecastYears);
-
-  const intrinsicValue = pvSum + pvTerminal;
-
-  // ── Signal ────────────────────────────────────────────────
-  let upside = null;
-  let signal = null;
-  if (currentPrice && currentPrice > 0) {
-    upside = ((intrinsicValue - currentPrice) / currentPrice) * 100;
-    signal = upside >  15 ? "BUY"
-           : upside < -15 ? "SELL"
-           :                "HOLD";
-  }
-
-  return {
-    intrinsicValue: parseFloat(intrinsicValue.toFixed(2)),
-    pvStage1:       parseFloat(pvSum.toFixed(2)),
-    terminalValue:  parseFloat(terminalValue.toFixed(2)),
-    pvTerminal:     parseFloat(pvTerminal.toFixed(2)),
-    upside:         upside !== null ? parseFloat(upside.toFixed(1)) : null,
-    signal,
-    stages,
-  };
-}
-
-// ── Sensitivity table ──────────────────────────────────────
-// Sweeps WACC (rows) and terminal growth (cols) and returns
-// a 2D grid of intrinsic values — standard IB sensitivity analysis.
-//
-// waccRange      – [min, max] e.g. [7, 11]
-// tgRange        – [min, max] e.g. [1, 4]
-// steps          – number of steps per axis (default 5)
-export function buildSensitivityTable(dcfInputs, waccRange, tgRange, steps = 5) {
-  const waccStep = (waccRange[1] - waccRange[0]) / (steps - 1);
-  const tgStep   = (tgRange[1]  - tgRange[0])  / (steps - 1);
-
-  const waccValues = Array.from({ length: steps }, (_, i) =>
-    parseFloat((waccRange[0] + i * waccStep).toFixed(2))
-  );
-  const tgValues = Array.from({ length: steps }, (_, i) =>
-    parseFloat((tgRange[0] + i * tgStep).toFixed(2))
-  );
-
-  const rows = waccValues.map(wacc => {
-    const cols = tgValues.map(tg => {
-      try {
-        const { intrinsicValue } = runDCF({ ...dcfInputs, wacc, terminalGrowth: tg });
-        return parseFloat(intrinsicValue.toFixed(2));
-      } catch {
-        return null;
-      }
-    });
-    return { wacc, cols };
-  });
-
-  return { rows, tgValues, waccValues };
+// Box-Muller transform for normal random variable
+function boxMullerRandom() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }

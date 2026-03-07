@@ -1,29 +1,39 @@
 export default function Header({ metrics, totalWeight, activeTab, setActiveTab }) {
   const tabs = [
-    { id: "builder",    label: "// PORTFOLIO BUILDER" },
-    { id: "valuation",  label: "// VALUATION SCREEN"  },
-    { id: "optimizer",  label: "// OPTIMIZER"          },
-    { id: "backtest",   label: "// BACKTEST"           },
-    { id: "dcf",        label: "// DCF MODEL"          },
-    { id: "montecarlo", label: "// MONTE CARLO"        },
-    { id: "charts",     label: "// ANALYTICS"          },
-    { id: "world",      label: "// WORLD MONITOR"      },
-    { id: "news",       label: "// NEWS & SENTIMENT"   },
-    { id: "marketwatch", label: "// MARKET WATCH" },
+    // ── Portfolio tools ──────────────────────────────────
+    { id: "builder",     label: "// PORTFOLIO"    },
+    { id: "valuation",   label: "// VALUATION"    },
+    { id: "optimizer",   label: "// OPTIMIZER"    },
+    { id: "backtest",    label: "// BACKTEST"      },
+    { id: "dcf",         label: "// DCF"           },
+    { id: "montecarlo",  label: "// MONTE CARLO"   },
+    { id: "charts",      label: "// ANALYTICS"     },
+    // ── Market data ──────────────────────────────────────
+    { id: "marketwatch", label: "// MARKET WATCH"  },
+    { id: "macro",       label: "// MACRO"         },
+    { id: "fx",          label: "// FX & CRYPTO"   },
+    { id: "commodities", label: "// COMMODITIES"   },
+    // ── Intelligence ─────────────────────────────────────
+    { id: "news",        label: "// NEWS"          },
+    { id: "world",       label: "// WORLD"         },
   ];
 
   const weightOk    = Math.abs(totalWeight - 100) < 0.1;
   const weightOver  = totalWeight > 100.05;
   const weightColor = weightOk ? "#00ff9d" : weightOver ? "#ff6b35" : "#ffd700";
 
+  // Group separators
+  const SEPARATORS = new Set(["marketwatch", "news"]);
+
   return (
     <div style={{ borderBottom: "1px solid #1c2333", background: "#060a0f", position: "sticky", top: 0, zIndex: 100 }}>
+      {/* Top bar */}
       <div style={{ padding: "0 24px" }}>
         <div style={{ maxWidth: 1320, margin: "0 auto", display: "flex", alignItems: "center", gap: 32, height: 52 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 8, height: 8, background: "#00ff9d", borderRadius: "50%", boxShadow: "0 0 8px #00ff9d" }} className="blink" />
-            <span style={{ color: "#00ff9d", fontWeight: 600, letterSpacing: "0.08em", fontSize: 14 }}>PORTFOLIO_OS</span>
-            <span style={{ color: "#2d3748", fontSize: 11 }}>v2.5.0</span>
+            <span style={{ color: "#00ff9d", fontWeight: 700, letterSpacing: "0.08em", fontSize: 14 }}>PORTFOLIO_OS</span>
+            <span style={{ color: "#2d3748", fontSize: 11 }}>v3.0.0</span>
           </div>
           <div style={{ flex: 1 }} />
           {metrics && (
@@ -41,15 +51,20 @@ export default function Header({ metrics, totalWeight, activeTab, setActiveTab }
           </div>
         </div>
       </div>
-      <div style={{ padding: "0 24px", background: "#0a0e14" }}>
-        <div style={{ maxWidth: 1320, margin: "0 auto", display: "flex", overflowX: "auto" }}>
-          {tabs.map(t => (
+
+      {/* Tab bar */}
+      <div style={{ padding: "0 24px", background: "#0a0e14", overflowX: "auto" }}>
+        <div style={{ maxWidth: 1320, margin: "0 auto", display: "flex" }}>
+          {tabs.map((t, i) => (
             <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
               cursor: "pointer", background: "transparent", border: "none",
               borderBottom: `2px solid ${activeTab === t.id ? "#00ff9d" : "transparent"}`,
+              borderLeft: SEPARATORS.has(t.id) ? "1px solid #1c2333" : "none",
               color: activeTab === t.id ? "#00ff9d" : "#8b949e",
               padding: "9px 14px", fontSize: 11, letterSpacing: "0.07em",
               fontFamily: "inherit", transition: "all 0.15s", whiteSpace: "nowrap",
+              marginLeft: SEPARATORS.has(t.id) ? 8 : 0,
+              paddingLeft: SEPARATORS.has(t.id) ? 16 : 14,
             }}>
               {t.label}
             </button>

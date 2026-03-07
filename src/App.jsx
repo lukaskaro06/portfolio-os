@@ -17,11 +17,14 @@ import DCFTab           from "./components/DCF";
 import WorldMonitor     from "./components/WorldMonitor";
 import NewsSentiment    from "./components/NewsSentiment";
 import MarketWatch      from "./components/MarketWatch";
+import MacroPanel       from "./components/MacroPanel";
+import FXCryptoPanel    from "./components/FXCryptoPanel";
+import CommoditiesPanel from "./components/CommoditiesPanel";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("builder");
 
-  // ── Portfolio state ───────────────────────────────────
+  // ── Portfolio state ─────────────────────────────────────
   const {
     holdings, totalWeight, metrics, sectorBreakdown,
     riskTolerance, setRiskTolerance,
@@ -29,13 +32,13 @@ export default function App() {
     optimize, addCustomStock,
   } = usePortfolio();
 
-  // ── Legacy market data (FMP / static enrichment) ─────
+  // ── Legacy market data (FMP / static enrichment) ────────
   const {
     enrichedHoldings, loading: dataLoading,
     errors: dataErrors, lastFetch, hasApiKey, refresh,
   } = useMarketData(holdings);
 
-  // ── Watchlist (persisted to localStorage) ─────────────
+  // ── Watchlist (persisted to localStorage) ──────────────
   const [watchlistTickers, setWatchlistTickers] = useState(() => {
     try {
       const saved = localStorage.getItem("mw_watchlist");
@@ -47,15 +50,23 @@ export default function App() {
     }
   });
 
-  // ── Global Yahoo live data — polls every 2 s ──────────
-  // Merges portfolio tickers + watchlist into one fetch loop
+  // ── Smart tab-aware polling ─────────────────────────────
+  // Only poll tickers relevant to the active tab
   const allTickers = useMemo(() => {
-    return [...new Set([...holdings.map(h => h.ticker), ...watchlistTickers])];
-  }, [holdings, watchlistTickers]);
+    const portfolioTickers = holdings.map(h => h.ticker);
+    const tabsNeedingAll   = ["marketwatch", "macro", "fx", "commodities"];
+    if (tabsNeedingAll.includes(activeTab)) {
+      return [...new Set([...portfolioTickers, ...watchlistTickers])];
+    }
+    if (["backtest", "montecarlo", "world", "news"].includes(activeTab)) {
+      return [];
+    }
+    return portfolioTickers;
+  }, [holdings, watchlistTickers, activeTab]);
 
   const stockData = useStockData(allTickers);
 
-  // ── Enrich holdings with live prices for every tab ────
+  // ── Enrich holdings with live prices ───────────────────
   const liveHoldings = useMemo(() => {
     return enrichedHoldings.map(h => {
       const q = stockData.getQuote(h.ticker);
@@ -93,13 +104,15 @@ export default function App() {
         errors={dataErrors}
         lastFetch={stockData.lastUpdate ?? lastFetch}
         onRefresh={() => { refresh(); stockData.refresh(); }}
+        rateLimited={stockData.rateLimited}
+        retryIn={stockData.retryIn}
       />
 
       <main style={isFullscreen
         ? { maxWidth: "100%" }
         : { maxWidth: 1320, margin: "0 auto", padding: "24px 24px 60px" }
       }>
-        {activeTab === "builder" && (
+        {activeTab === "builder"    && (
           <PortfolioBuilder
             holdings={liveHoldings}
             totalWeight={totalWeight}
@@ -113,14 +126,14 @@ export default function App() {
             stockData={stockData}
           />
         )}
-        {activeTab === "valuation"  && <ValuationScreen holdings={liveHoldings} stockData={stockData} />}
-        {activeTab === "optimizer"  && <Optimizer        holdings={liveHoldings} metrics={metrics} riskTolerance={riskTolerance} setRiskTolerance={setRiskTolerance} optimize={optimize} />}
-        {activeTab === "backtest"   && <BacktestTab      holdings={liveHoldings} />}
-        {activeTab === "dcf"        && <DCFTab           holdings={liveHoldings} stockData={stockData} />}
-        {activeTab === "montecarlo" && <MonteCarloTab    metrics={metrics} liveHoldings={liveHoldings} />}
-        {activeTab === "charts"     && <AnalyticsTab     holdings={liveHoldings} sectorBreakdown={sectorBreakdown} stockData={stockData} />}
-        {activeTab === "world"      && <WorldMonitor     holdings={liveHoldings} />}
-        {activeTab === "news"       && <NewsSentiment    holdings={liveHoldings} />}
+        {activeTab === "valuation"   && <ValuationScreen  holdings={liveHoldings} stockData={stockData} />}
+        {activeTab === "optimizer"   && <Optimizer         holdings={liveHoldings} metrics={metrics} riskTolerance={riskTolerance} setRiskTolerance={setRiskTolerance} optimize={optimize} />}
+        {activeTab === "backtest"    && <BacktestTab       holdings={liveHoldings} />}
+        {activeTab === "dcf"         && <DCFTab            holdings={liveHoldings} stockData={stockData} />}
+        {activeTab === "montecarlo"  && <MonteCarloTab     metrics={metrics} liveHoldings={liveHoldings} />}
+        {activeTab === "charts"      && <AnalyticsTab      holdings={liveHoldings} sectorBreakdown={sectorBreakdown} stockData={stockData} />}
+        {activeTab === "world"       && <WorldMonitor      holdings={liveHoldings} />}
+        {activeTab === "news"        && <NewsSentiment     holdings={liveHoldings} />}
         {activeTab === "marketwatch" && (
           <MarketWatch
             holdings={liveHoldings}
@@ -130,6 +143,9 @@ export default function App() {
             onAddToPortfolio={ticker => addStock(ticker)}
           />
         )}
+        {activeTab === "macro"       && <MacroPanel />}
+        {activeTab === "fx"          && <FXCryptoPanel />}
+        {activeTab === "commodities" && <CommoditiesPanel />}
       </main>
     </div>
   );
