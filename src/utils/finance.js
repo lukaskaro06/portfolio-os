@@ -87,7 +87,6 @@ export function calcPortfolioMetrics(holdings) {
 // ── Weight optimizer ───────────────────────────────────────
 export function optimizeWeights(holdings, riskTolerance = 50) {
   if (!holdings.length) return holdings;
-  const rf = 4.5;
   const riskPenalty = 1 - (riskTolerance / 100) * 0.6; // 1.0 (conservative) → 0.4 (aggressive)
 
   const scores = holdings.map(h => {
@@ -118,15 +117,15 @@ export function buildEfficientFrontier(universe) {
 
 // ── DCF model ──────────────────────────────────────────────
 export function runDCF({
-  revenueBase,      // current revenue $B
-  revenueGrowth,    // % annual growth
-  ebitMargin,       // % EBIT margin
-  taxRate,          // % tax rate
-  reinvestmentRate, // % of NOPAT reinvested
-  wacc,             // % discount rate
-  terminalGrowth,   // % terminal growth rate
-  forecastYears,    // number of forecast years (usually 5)
-  currentPrice,     // live stock price
+  revenueBase,
+  revenueGrowth,
+  ebitMargin,
+  taxRate,
+  reinvestmentRate,
+  wacc,
+  terminalGrowth,
+  forecastYears,
+  currentPrice,
 }) {
   if (wacc <= terminalGrowth) throw new Error("WACC must exceed terminal growth rate");
 
@@ -144,9 +143,9 @@ export function runDCF({
     cashFlows.push({ year: yr, revenue: +revenue.toFixed(2), ebit: +ebit.toFixed(2), nopat: +nopat.toFixed(2), fcf: +fcf.toFixed(2), pv: +pv.toFixed(2) });
   }
 
-  const terminalFCF = cashFlows[cashFlows.length - 1].fcf * (1 + terminalGrowth / 100);
-  const terminalVal = terminalFCF / ((wacc - terminalGrowth) / 100);
-  const terminalPV  = terminalVal / Math.pow(1 + wacc / 100, forecastYears);
+  const terminalFCF    = cashFlows[cashFlows.length - 1].fcf * (1 + terminalGrowth / 100);
+  const terminalVal    = terminalFCF / ((wacc - terminalGrowth) / 100);
+  const terminalPV     = terminalVal / Math.pow(1 + wacc / 100, forecastYears);
   const intrinsicValue = totalPV + terminalPV;
 
   let signal = "HOLD";
@@ -158,11 +157,11 @@ export function runDCF({
 
   return {
     cashFlows,
-    terminalValue: +terminalVal.toFixed(2),
-    terminalPV:    +terminalPV.toFixed(2),
-    intrinsicValue:+intrinsicValue.toFixed(2),
-    pvFCF:         +totalPV.toFixed(2),
-    terminalPct:   +((terminalPV / intrinsicValue) * 100).toFixed(1),
+    terminalValue:  +terminalVal.toFixed(2),
+    terminalPV:     +terminalPV.toFixed(2),
+    intrinsicValue: +intrinsicValue.toFixed(2),
+    pvFCF:          +totalPV.toFixed(2),
+    terminalPct:    +((terminalPV / intrinsicValue) * 100).toFixed(1),
     signal,
   };
 }
@@ -188,112 +187,171 @@ export function buildSensitivityTable(baseInputs, waccRange, growthRange, steps 
 }
 
 // ── Backtest ───────────────────────────────────────────────
+// Fixed: returns all fields Backtest.jsx expects:
+//   cumSeries        — [{date, portfolio, benchmark}] cumulative % gain from 0
+//   drawdownSeries   — [{date, drawdown}] drawdown % from peak (negative numbers)
+//   monthlyHeatmap   — [{year, Jan, Feb, …, Dec, Annual}] array of row objects
+//   metrics          — { annReturn, annVol, sharpe, sortino, maxDD,
+//                        alpha, beta, winRate, bestMonth, worstMonth }
 export function runBacktest({ priceHistory, weights, benchmark }) {
-  // priceHistory: { ticker: [{ date, close }] }
-  // weights: { ticker: weight (0-1) }
-  // benchmark: [{ date, close }]
-
-  // Find common dates across all series
-  const tickerDates = Object.values(priceHistory).map(series => new Set(series.map(d => d.date)));
+  // ── 1. Align dates ──────────────────────────────────────
+  const tickerDates = Object.values(priceHistory).map(s => new Set(s.map(d => d.date)));
   const benchDates  = new Set(benchmark.map(d => d.date));
-  const commonDates = [...benchDates].filter(d => tickerDates.every(set => set.has(d))).sort();
+  const commonDates = [...benchDates]
+    .filter(d => tickerDates.every(set => set.has(d)))
+    .sort();
 
-  if (commonDates.length < 2) throw new Error("Not enough common dates for backtest");
+  if (commonDates.length < 3) throw new Error("Not enough common dates for backtest");
 
-  // Build indexed price lookup
+  // ── 2. Build price lookups ──────────────────────────────
   const lookup = {};
   for (const [ticker, series] of Object.entries(priceHistory)) {
     lookup[ticker] = Object.fromEntries(series.map(d => [d.date, d.close]));
   }
   const benchLookup = Object.fromEntries(benchmark.map(d => [d.date, d.close]));
 
-  // Calculate monthly returns
-  const portfolioReturns = [];
-  const benchmarkReturns = [];
+  // ── 3. Compute monthly returns ──────────────────────────
+  const portRets  = [];
+  const benchRets = [];
 
   for (let i = 1; i < commonDates.length; i++) {
-    const prevDate = commonDates[i - 1];
-    const currDate = commonDates[i];
+    const prev = commonDates[i - 1];
+    const curr = commonDates[i];
 
-    let portRet = 0;
-    for (const [ticker, weight] of Object.entries(weights)) {
-      const prev = lookup[ticker]?.[prevDate];
-      const curr = lookup[ticker]?.[currDate];
-      if (prev && curr && prev > 0) {
-        portRet += weight * ((curr - prev) / prev);
-      }
+    let pRet = 0;
+    for (const [ticker, w] of Object.entries(weights)) {
+      const p0 = lookup[ticker]?.[prev];
+      const p1 = lookup[ticker]?.[curr];
+      if (p0 && p1 && p0 > 0) pRet += w * ((p1 - p0) / p0);
     }
 
-    const benchPrev = benchLookup[prevDate];
-    const benchCurr = benchLookup[currDate];
-    const benchRet  = benchPrev && benchCurr && benchPrev > 0
-      ? (benchCurr - benchPrev) / benchPrev : 0;
+    const b0 = benchLookup[prev];
+    const b1 = benchLookup[curr];
+    const bRet = b0 && b1 && b0 > 0 ? (b1 - b0) / b0 : 0;
 
-    portfolioReturns.push({ date: currDate, return: portRet });
-    benchmarkReturns.push({ date: currDate, return: benchRet });
+    portRets.push({ date: curr, r: pRet });
+    benchRets.push({ date: curr, r: bRet });
   }
 
-  // Build cumulative equity curves
-  let portValue  = 1;
-  let benchValue = 1;
-  const curve = commonDates.slice(1).map((date, i) => {
-    portValue  *= (1 + portfolioReturns[i].return);
-    benchValue *= (1 + benchmarkReturns[i].return);
-    return { date, portfolio: +(portValue * 100).toFixed(2), benchmark: +(benchValue * 100).toFixed(2) };
+  // ── 4. Cumulative series (% gain from 0, not indexed at 100) ──
+  let portVal  = 1;
+  let benchVal = 1;
+  const cumSeries = portRets.map((pr, i) => {
+    portVal  *= (1 + pr.r);
+    benchVal *= (1 + benchRets[i].r);
+    return {
+      date:      pr.date,
+      portfolio: +((portVal  - 1) * 100).toFixed(2),
+      benchmark: +((benchVal - 1) * 100).toFixed(2),
+    };
   });
 
-  // Summary stats
-  const portTotal   = portValue - 1;
-  const benchTotal  = benchValue - 1;
-  const portCagr    = Math.pow(portValue, 12 / portfolioReturns.length) - 1;
-  const benchCagr   = Math.pow(benchValue, 12 / benchmarkReturns.length) - 1;
+  // ── 5. Drawdown series ──────────────────────────────────
+  let peak   = 1;
+  let runVal = 1;
+  const drawdownSeries = portRets.map(pr => {
+    runVal *= (1 + pr.r);
+    if (runVal > peak) peak = runVal;
+    const dd = peak > 0 ? -((peak - runVal) / peak) * 100 : 0;
+    return { date: pr.date, drawdown: +dd.toFixed(2) };
+  });
 
-  const portAvg = portfolioReturns.reduce((s, r) => s + r.return, 0) / portfolioReturns.length;
-  const portStd = Math.sqrt(portfolioReturns.reduce((s, r) => s + Math.pow(r.return - portAvg, 2), 0) / portfolioReturns.length);
-  const sharpe  = portStd > 0 ? (portAvg - 0.045 / 12) / portStd * Math.sqrt(12) : 0;
+  // ── 6. Summary metrics ──────────────────────────────────
+  const n       = portRets.length;
+  const portAvg = portRets.reduce((s, r) => s + r.r, 0) / n;
+  const portStd = Math.sqrt(portRets.reduce((s, r) => s + Math.pow(r.r - portAvg, 2), 0) / n);
+
+  // Annualised
+  const finalPortVal = 1 + (cumSeries[cumSeries.length - 1]?.portfolio ?? 0) / 100;
+  const annReturn    = +(( Math.pow(finalPortVal, 12 / n) - 1) * 100).toFixed(2);
+  const annVol       = +(portStd * Math.sqrt(12) * 100).toFixed(2);
+
+  // Sharpe (Rf = 4.5% annual = 0.375%/month)
+  const rf      = 0.045 / 12;
+  const sharpe  = portStd > 0 ? +((portAvg - rf) / portStd * Math.sqrt(12)).toFixed(2) : 0;
+
+  // Sortino — only downside deviation
+  const downRets   = portRets.filter(r => r.r < rf).map(r => r.r - rf);
+  const downStd    = downRets.length > 0
+    ? Math.sqrt(downRets.reduce((s, r) => s + r * r, 0) / n)
+    : portStd;
+  const sortino    = downStd > 0 ? +((portAvg - rf) / downStd * Math.sqrt(12)).toFixed(2) : 0;
 
   // Max drawdown
-  let peak = 1, maxDd = 0, runVal = 1;
-  for (const r of portfolioReturns) {
-    runVal *= (1 + r.return);
-    if (runVal > peak) peak = runVal;
-    const dd = (peak - runVal) / peak;
-    if (dd > maxDd) maxDd = dd;
+  const maxDD = +(Math.min(...drawdownSeries.map(d => d.drawdown))).toFixed(2);
+
+  // Beta vs benchmark
+  const benchAvg = benchRets.reduce((s, r) => s + r.r, 0) / n;
+  const cov      = portRets.reduce((s, pr, i) => s + (pr.r - portAvg) * (benchRets[i].r - benchAvg), 0) / n;
+  const benchVar = benchRets.reduce((s, r) => s + Math.pow(r.r - benchAvg, 2), 0) / n;
+  const beta     = benchVar > 0 ? +(cov / benchVar).toFixed(2) : 1;
+
+  // Alpha (Jensen's alpha annualised)
+  const benchAnnReturn = +(( Math.pow(1 + benchRets.reduce((s,r)=>s+r.r,0)/n, 12) - 1) * 100).toFixed(2);
+  const alpha          = +(annReturn - (4.5 + beta * (benchAnnReturn - 4.5))).toFixed(2);
+
+  // Win rate
+  const wins    = portRets.filter(r => r.r > 0).length;
+  const winRate = +((wins / n) * 100).toFixed(1);
+
+  // Best / worst month
+  const monthlyPcts = portRets.map(r => +(r.r * 100).toFixed(2));
+  const bestMonth   = +Math.max(...monthlyPcts).toFixed(2);
+  const worstMonth  = +Math.min(...monthlyPcts).toFixed(2);
+
+  // ── 7. Monthly heatmap ──────────────────────────────────
+  // Backtest.jsx expects: array of { year, Jan, Feb, ..., Dec, Annual }
+  // with null for missing months, values as rounded % numbers
+  const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  const calMap = {};
+  for (const pr of portRets) {
+    const [yr, mo] = pr.date.split("-");
+    if (!calMap[yr]) calMap[yr] = {};
+    const monthName = MONTH_NAMES[parseInt(mo, 10) - 1];
+    if (monthName) calMap[yr][monthName] = +(pr.r * 100).toFixed(2);
   }
 
-  // Monthly calendar
-  const monthlyCalendar = buildMonthlyCalendar(portfolioReturns);
+  const monthlyHeatmap = Object.keys(calMap).sort().map(yr => {
+    const row = { year: yr };
+    let compounded = 1;
+    for (const m of MONTH_NAMES) {
+      const v = calMap[yr][m] ?? null;
+      row[m] = v;
+      if (v !== null) compounded *= (1 + v / 100);
+    }
+    row["Annual"] = +((compounded - 1) * 100).toFixed(2);
+    return row;
+  });
 
+  // ── 8. Return everything ────────────────────────────────
   return {
-    curve,
-    portTotal:   +(portTotal  * 100).toFixed(2),
-    benchTotal:  +(benchTotal * 100).toFixed(2),
-    portCagr:    +(portCagr   * 100).toFixed(2),
-    benchCagr:   +(benchCagr  * 100).toFixed(2),
-    sharpe:      +sharpe.toFixed(2),
-    maxDrawdown: +(maxDd * 100).toFixed(2),
-    monthlyCalendar,
+    // Charts
+    cumSeries,
+    drawdownSeries,
+    monthlyHeatmap,
+    // Metrics object matching Backtest.jsx exactly
+    metrics: {
+      annReturn:  annReturn.toFixed(2),
+      annVol:     annVol.toFixed(2),
+      sharpe:     sharpe.toFixed(2),
+      sortino:    sortino.toFixed(2),
+      maxDD:      maxDD.toFixed(2),
+      alpha:      alpha.toFixed(2),
+      beta:       beta.toFixed(2),
+      winRate:    winRate.toFixed(1),
+      bestMonth:  bestMonth.toFixed(2),
+      worstMonth: worstMonth.toFixed(2),
+    },
+    // Legacy fields kept for any other consumers
+    portCagr:    annReturn,
+    benchCagr:   benchAnnReturn,
+    maxDrawdown: Math.abs(maxDD),
+    sharpe,
   };
 }
 
-function buildMonthlyCalendar(returns) {
-  const byYear = {};
-  for (const r of returns) {
-    const [yr, mo] = r.date.split("-");
-    if (!byYear[yr]) byYear[yr] = Array(13).fill(null);
-    const idx = parseInt(mo) - 1;
-    byYear[yr][idx] = r.return * 100;
-  }
-  // Annual totals
-  for (const yr of Object.keys(byYear)) {
-    const months = byYear[yr].slice(0, 12).filter(v => v !== null);
-    const total  = months.reduce((s, v) => s * (1 + v / 100), 1) - 1;
-    byYear[yr][12] = +(total * 100).toFixed(2);
-  }
-  return byYear;
-}
-
-// ── Monte Carlo simulation ────────────────────────────────
+// ── Monte Carlo simulation ─────────────────────────────────
 export function runMonteCarlo({ annualReturn, annualVol, initialValue, years, simCount = 500 }) {
   const monthlyRet = annualReturn / 100 / 12;
   const monthlyVol = annualVol   / 100 / Math.sqrt(12);
@@ -304,9 +362,9 @@ export function runMonteCarlo({ annualReturn, annualVol, initialValue, years, si
     let val = initialValue;
     const path = [val];
     for (let m = 0; m < months; m++) {
-      const z    = boxMullerRandom();
-      const ret  = monthlyRet + monthlyVol * z;
-      val       *= (1 + ret);
+      const z   = boxMullerRandom();
+      const ret = monthlyRet + monthlyVol * z;
+      val      *= (1 + ret);
       path.push(val);
     }
     simulations.push(path);
@@ -317,21 +375,21 @@ export function runMonteCarlo({ annualReturn, annualVol, initialValue, years, si
   for (let m = 0; m <= months; m++) {
     const vals = simulations.map(s => s[m]).sort((a, b) => a - b);
     bands.push({
-      month: m,
-      p10:   vals[Math.floor(simCount * 0.10)],
-      p25:   vals[Math.floor(simCount * 0.25)],
-      p50:   vals[Math.floor(simCount * 0.50)],
-      p75:   vals[Math.floor(simCount * 0.75)],
-      p90:   vals[Math.floor(simCount * 0.90)],
+      month:  m,
+      p10:    vals[Math.floor(simCount * 0.10)],
+      p25:    vals[Math.floor(simCount * 0.25)],
+      median: vals[Math.floor(simCount * 0.50)],
+      p75:    vals[Math.floor(simCount * 0.75)],
+      p90:    vals[Math.floor(simCount * 0.90)],
     });
   }
 
   const finalVals = simulations.map(s => s[months]).sort((a, b) => a - b);
   return {
     bands,
-    median:    finalVals[Math.floor(simCount * 0.5)],
-    p10:       finalVals[Math.floor(simCount * 0.1)],
-    p90:       finalVals[Math.floor(simCount * 0.9)],
+    median:     finalVals[Math.floor(simCount * 0.5)],
+    p10:        finalVals[Math.floor(simCount * 0.1)],
+    p90:        finalVals[Math.floor(simCount * 0.9)],
     probProfit: finalVals.filter(v => v > initialValue).length / simCount,
   };
 }
