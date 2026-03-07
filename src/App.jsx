@@ -1,13 +1,15 @@
+// src/App.jsx
 import { useState, useMemo } from "react";
 import "./index.css";
 
-import { usePortfolio }  from "./hooks/usePortfolio";
-import { useMarketData } from "./hooks/useMarketData";
-import { useStockData }  from "./hooks/useStockData";
+import { usePersistence }  from "./hooks/usePersistence";
+import { usePortfolio }    from "./hooks/usePortfolio";
+import { useMarketData }   from "./hooks/useMarketData";
+import { useStockData }    from "./hooks/useStockData";
 
-import Screener from "./components/Screener";
 import Header           from "./components/Header";
 import LiveDataBanner   from "./components/LiveDataBanner";
+import SyncBadge        from "./components/SyncBadge";
 import PortfolioBuilder from "./components/PortfolioBuilder";
 import ValuationScreen  from "./components/ValuationScreen";
 import Optimizer        from "./components/Optimizer";
@@ -21,41 +23,51 @@ import MarketWatch      from "./components/MarketWatch";
 import MacroPanel       from "./components/MacroPanel";
 import FXCryptoPanel    from "./components/FXCryptoPanel";
 import CommoditiesPanel from "./components/CommoditiesPanel";
+import Screener         from "./components/Screener";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("builder");
 
-  // ── Portfolio state ─────────────────────────────────────
+  // ── Persistence (Supabase + localStorage) ──────────────
+  const {
+    holdings:         persistedHoldings,
+    riskTolerance:    persistedRisk,
+    watchlist:        persistedWatchlist,
+    syncStatus,
+    loaded,
+    setHoldings:      setPersistedHoldings,
+    setRiskTolerance: setPersistedRisk,
+    setWatchlist:     setPersistedWatchlist,
+    hasSupabase,
+  } = usePersistence();
+
+  // ── Portfolio state (mutations wired to persistence) ───
   const {
     holdings, totalWeight, metrics, sectorBreakdown,
     riskTolerance, setRiskTolerance,
     addStock, removeStock, updateWeight, equalWeight,
     optimize, addCustomStock,
-  } = usePortfolio();
+  } = usePortfolio({
+    holdings:      persistedHoldings,
+    setHoldings:   setPersistedHoldings,
+    riskTolerance: persistedRisk,
+    setRiskTolerance: setPersistedRisk,
+  });
 
-  // ── Legacy market data (FMP / static enrichment) ────────
+  // ── Legacy market data (FMP / static enrichment) ───────
   const {
     enrichedHoldings, loading: dataLoading,
     errors: dataErrors, lastFetch, hasApiKey, refresh,
   } = useMarketData(holdings);
 
-  // ── Watchlist (persisted to localStorage) ──────────────
-  const [watchlistTickers, setWatchlistTickers] = useState(() => {
-    try {
-      const saved = localStorage.getItem("mw_watchlist");
-      return saved
-        ? JSON.parse(saved)
-        : ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "SPY", "QQQ", "BTC-USD"];
-    } catch {
-      return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "SPY", "QQQ", "BTC-USD"];
-    }
-  });
+  // ── Watchlist ──────────────────────────────────────────
+  const watchlistTickers    = persistedWatchlist;
+  const setWatchlistTickers = setPersistedWatchlist;
 
-  // ── Smart tab-aware polling ─────────────────────────────
-  // Only poll tickers relevant to the active tab
+  // ── Smart tab-aware polling ────────────────────────────
   const allTickers = useMemo(() => {
     const portfolioTickers = holdings.map(h => h.ticker);
-    const tabsNeedingAll   = ["marketwatch", "macro", "fx", "commodities"];
+    const tabsNeedingAll   = ["marketwatch", "macro", "fx", "commodities", "screener"];
     if (tabsNeedingAll.includes(activeTab)) {
       return [...new Set([...portfolioTickers, ...watchlistTickers])];
     }
@@ -67,7 +79,7 @@ export default function App() {
 
   const stockData = useStockData(allTickers);
 
-  // ── Enrich holdings with live prices ───────────────────
+  // ── Enrich holdings with live prices ──────────────────
   const liveHoldings = useMemo(() => {
     return enrichedHoldings.map(h => {
       const q = stockData.getQuote(h.ticker);
@@ -90,6 +102,19 @@ export default function App() {
 
   const isFullscreen = activeTab === "world";
 
+  // ── Don't render until initial load is done ────────────
+  // Prevents flash of default holdings before DB data arrives
+  if (!loaded) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+        <div style={{ width: 20, height: 20, border: "2px solid #1c2333", borderTopColor: "#00ff9d", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+        <span style={{ color: "#8b949e", fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em" }}>
+          {hasSupabase ? "LOADING PORTFOLIO…" : "INITIALISING…"}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh" }}>
       <Header
@@ -105,15 +130,16 @@ export default function App() {
         errors={dataErrors}
         lastFetch={stockData.lastUpdate ?? lastFetch}
         onRefresh={() => { refresh(); stockData.refresh(); }}
-        rateLimited={stockData.rateLimited}
-        retryIn={stockData.retryIn}
       />
+
+      {/* Supabase sync status badge */}
+      <SyncBadge status={syncStatus} hasSupabase={hasSupabase} />
 
       <main style={isFullscreen
         ? { maxWidth: "100%" }
         : { maxWidth: 1320, margin: "0 auto", padding: "24px 24px 60px" }
       }>
-        {activeTab === "builder"    && (
+        {activeTab === "builder"     && (
           <PortfolioBuilder
             holdings={liveHoldings}
             totalWeight={totalWeight}
@@ -135,6 +161,13 @@ export default function App() {
         {activeTab === "charts"      && <AnalyticsTab      holdings={liveHoldings} sectorBreakdown={sectorBreakdown} stockData={stockData} />}
         {activeTab === "world"       && <WorldMonitor      holdings={liveHoldings} />}
         {activeTab === "news"        && <NewsSentiment     holdings={liveHoldings} />}
+        {activeTab === "screener"    && (
+          <Screener
+            stockData={stockData}
+            holdings={liveHoldings}
+            onAddToPortfolio={stock => addStock(stock)}
+          />
+        )}
         {activeTab === "marketwatch" && (
           <MarketWatch
             holdings={liveHoldings}
@@ -147,13 +180,6 @@ export default function App() {
         {activeTab === "macro"       && <MacroPanel />}
         {activeTab === "fx"          && <FXCryptoPanel />}
         {activeTab === "commodities" && <CommoditiesPanel />}
-        {activeTab === "screener" && (
-          <Screener
-          stockData={stockData}
-          holdings={liveHoldings}
-          onAddToPortfolio={stock => addStock(stock)}
-           />
-           )}
       </main>
     </div>
   );
