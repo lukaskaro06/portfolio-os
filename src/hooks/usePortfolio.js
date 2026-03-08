@@ -1,46 +1,28 @@
 // src/hooks/usePortfolio.js
-// ─────────────────────────────────────────────────────────────
-// Updated to accept externally managed state from usePersistence.
-// All mutations go through the setters passed in, so every
-// change is automatically saved to Supabase + localStorage.
-
 import { useMemo, useCallback } from "react";
 import { STOCK_UNIVERSE } from "../data/stocks";
 import { calcPortfolioMetrics, optimizeWeights } from "../utils/finance";
 
-export function usePortfolio({
-  holdings,
-  setHoldings,
-  riskTolerance,
-  setRiskTolerance,
-}) {
-  // ── Derived ─────────────────────────────────────────────
+export function usePortfolio({ holdings, setHoldings, riskTolerance, setRiskTolerance }) {
   const totalWeight = useMemo(
     () => parseFloat(holdings.reduce((s, h) => s + h.weight, 0).toFixed(1)),
     [holdings],
   );
 
-  const metrics = useMemo(
-    () => calcPortfolioMetrics(holdings),
-    [holdings],
-  );
+  const metrics = useMemo(() => calcPortfolioMetrics(holdings), [holdings]);
 
   const sectorBreakdown = useMemo(() => {
     const map = {};
-    holdings.forEach(h => {
-      map[h.sector] = parseFloat(((map[h.sector] || 0) + h.weight).toFixed(1));
-    });
+    holdings.forEach(h => { map[h.sector] = parseFloat(((map[h.sector] || 0) + h.weight).toFixed(1)); });
     return Object.entries(map).map(([name, value]) => ({ name, value }));
   }, [holdings]);
 
-  // ── Mutations ────────────────────────────────────────────
   const addStock = useCallback((stock) => {
     setHoldings(prev => {
-      if (prev.find(h => h.ticker === stock.ticker)) return prev;
-      // Find full data from universe if only ticker was passed
       const full = typeof stock === "string"
         ? STOCK_UNIVERSE.find(s => s.ticker === stock) ?? { ticker: stock, name: stock, sector: "Unknown", pe: null, pb: null, evEbitda: null, beta: 1, expectedReturn: 10, volatility: 20, dividend: 0 }
         : stock;
+      if (prev.find(h => h.ticker === full.ticker)) return prev;
       return [...prev, { ...full, weight: 10 }];
     });
   }, [setHoldings]);
@@ -51,9 +33,7 @@ export function usePortfolio({
 
   const updateWeight = useCallback((ticker, raw) => {
     const val = Math.max(0, Math.min(100, parseFloat(raw) || 0));
-    setHoldings(prev =>
-      prev.map(h => h.ticker === ticker ? { ...h, weight: val } : h),
-    );
+    setHoldings(prev => prev.map(h => h.ticker === ticker ? { ...h, weight: val } : h));
   }, [setHoldings]);
 
   const equalWeight = useCallback(() => {
@@ -75,17 +55,8 @@ export function usePortfolio({
   }, [setHoldings]);
 
   return {
-    holdings,
-    totalWeight,
-    metrics,
-    sectorBreakdown,
-    riskTolerance,
-    setRiskTolerance,
-    addStock,
-    removeStock,
-    updateWeight,
-    equalWeight,
-    optimize,
-    addCustomStock,
+    holdings, totalWeight, metrics, sectorBreakdown,
+    riskTolerance, setRiskTolerance,
+    addStock, removeStock, updateWeight, equalWeight, optimize, addCustomStock,
   };
 }

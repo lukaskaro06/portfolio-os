@@ -1,21 +1,29 @@
 // src/lib/supabaseClient.js
 // ─────────────────────────────────────────────────────────────
-// Single Supabase client instance shared across the whole app.
-// Never import createClient anywhere else — always use this file.
+// Safe Supabase client — gracefully handles missing package
+// or missing env vars without crashing the app.
 
-import { createClient } from "@supabase/supabase-js";
+let createClient;
+try {
+  ({ createClient } = require("@supabase/supabase-js"));
+} catch {
+  // Package not installed — persistence will be disabled
+  createClient = null;
+}
 
 const SUPABASE_URL  = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_ANON) {
-  console.warn(
-    "[Supabase] Missing env vars — portfolio will not persist.\n" +
-    "Add REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY to your .env file."
-  );
+const missingPackage = !createClient;
+const missingEnv     = !SUPABASE_URL || !SUPABASE_ANON;
+
+if (missingPackage) {
+  console.warn("[Supabase] @supabase/supabase-js not installed. Run: npm install @supabase/supabase-js");
+} else if (missingEnv) {
+  console.warn("[Supabase] Missing env vars. Add REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY to your .env file.");
 }
 
-export const supabase = SUPABASE_URL && SUPABASE_ANON
+export const supabase = (!missingPackage && !missingEnv)
   ? createClient(SUPABASE_URL, SUPABASE_ANON)
   : null;
 
